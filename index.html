@@ -272,7 +272,7 @@ select.place { font: inherit; min-height: 38px; border: 1px solid var(--line); b
     <ol>
       <li>部下の連隊長に「何をするか」を任務で伝えます。どうやるかは、連隊長が自分で考えます。</li>
       <li>命令は無線や伝令で届くので、時間がかかります。将軍は性格と腕前しだいで、意見を言ったり、命令に従わなかったりします。</li>
-      <li>味方の位置は、司令部から見える範囲のほかは、報告でしか分かりません。薄い印は「その時刻にいた場所」です。</li>
+      <li>味方の位置は、5分ごとに無線で報告が来ます。報告が途絶えた部隊は、破線の印で最後にいた場所に残ります。</li>
     </ol>
     <div class="acts"><button class="btn main" id="introGo">始める(止めた状態で)</button><button class="btn" id="introSeat">席を変える</button></div>
   </div>
@@ -283,7 +283,7 @@ select.place { font: inherit; min-height: 38px; border: 1px solid var(--line); b
 (function (root) {
 'use strict';
 
-var VERSION = '2026-10-12 r5';
+var VERSION = '2026-10-12 r8';
 var MAP = 10000;          // 地図の一辺(m)
 var CELL = 100;           // 計算用の見えない升目(m)
 var N = MAP / CELL;       // 一辺の升目の数
@@ -532,6 +532,12 @@ function exposureMap(map, avoid, careful) {
 }
 function findPath(map, sx, sy, tx, ty, opts) {
   var pen = opts && opts.avoid && opts.avoid.length ? exposureMap(map, opts.avoid, opts.careful) : null;
+  var stealth = opts && opts.stealth;
+  if (stealth) { // 隠密:森を伝い、開けた所と道を避ける
+    if (!pen) pen = new Float32Array(N * N);
+    for (var pi = 0; pi < N * N; pi++) { var tt = map.terr[pi]; if (tt === PLAIN) pen[pi] += 2.5; else if (tt === TOWN) pen[pi] += 1.2; if (map.road[pi] && tt !== WATER) pen[pi] += 1.0; }
+  }
+  var spd = stealth ? function (i) { return map.road[i] && map.terr[i] !== WATER ? TERR[map.terr[i]].speed : cellSpeed(map, i); } : function (i) { return cellSpeed(map, i); };
   var s = idxAt(sx, sy), t = nearestPassable(map, idxAt(tx, ty));
   if (!passable(map, s)) s = nearestPassable(map, s);
   var tcx = t % N, tcy = (t / N) | 0;
@@ -541,11 +547,11 @@ function findPath(map, sx, sy, tx, ty, opts) {
     var cur = h.pop()[1];
     if (done[cur]) continue; done[cur] = 1;
     if (cur === t) break;
-    var cx = cur % N, cy = (cur / N) | 0, cs = cellSpeed(map, cur);
+    var cx = cur % N, cy = (cur / N) | 0, cs = spd(cur);
     for (var k = 0; k < 8; k++) {
       var nx = cx + DIRS[k][0], ny = cy + DIRS[k][1];
       if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
-      var j = ny * N + nx, ns = cellSpeed(map, j);
+      var j = ny * N + nx, ns = spd(j);
       if (ns <= 0 || done[j]) continue;
       if (k >= 4) { // 斜めは、両側が通れるときだけ(川の角をすり抜けない)
         if (!passable(map, cy * N + nx) || !passable(map, ny * N + cx)) continue;
@@ -661,7 +667,7 @@ function setupScenario(w) {
   r1.units.push(r1hq.id); r1.hq = r1hq.id; r2.units.push(r2hq.id); r2.hq = r2hq.id;
 
   // 赤軍(北原を守る)
-  var bri = addCmd(w, { side: 'red', name: '赤軍 第7旅団', title: '旅団長', bold: 0.45, skill: 0.6, obey: 0.6, mission: mis('hold', town, 'careful', null, '北原を守り抜け') });
+  var bri = addCmd(w, { side: 'red', name: '赤軍 第7旅団', title: '旅団長', bold: 0.6, skill: 0.65, obey: 0.6, mission: mis('hold', town, 'careful', null, '北原を守り抜け') });
   var ra = addCmd(w, { side: 'red', name: '第21連隊', title: '第21連隊長', bold: 0.6, skill: 0.5, obey: 0.5, parent: bri.id });
   var rb = addCmd(w, { side: 'red', name: '第22連隊', title: '第22連隊長', bold: 0.3, skill: 0.6, obey: 0.6, parent: bri.id });
   [['第1大隊(赤)', ra, 0.5, 0.5, 0.6, 4400, 2900], ['第2大隊(赤)', ra, 0.65, 0.45, 0.4, 5200, 2600], ['第3大隊(赤)', rb, 0.3, 0.6, 0.7, 5800, 3200]].forEach(function (a) {
@@ -703,7 +709,8 @@ function clockText(min) {
   var day = Math.floor(total / 1440) + 1, m = total % 1440;
   return day + '日目 ' + ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2);
 }
-var TYPE_TEXT = { take: '取れ', hold: '守れ', delay: '食い止めよ', scout: '探れ', attack: '叩け', reserve: '待て', move: 'へ移れ', feint: '引きつけよ' };
+var TYPE_TEXT = { take: '取れ', hold: '守れ', delay: '食い止めよ', scout: '探れ', attack: '叩け', reserve: '待て', move: 'へ移れ', feint: '引きつけよ', escort: '護衛せよ', follow: 'について行け' };
+var MANNER_TEXT = { normal: '', stealth: '隠密に', fast: '急いで' };
 var EFFORT_TEXT = { full: '全力で', careful: '損害を抑えて', feint: '引きつけるだけ' };
 function missionText(w, m) {
   if (!m) return '任務なし';
@@ -711,11 +718,14 @@ function missionText(w, m) {
   var where = m.place ? (getPlace(w, m.place) || {}).name : placeName(w, m.x, m.y);
   var s;
   if (m.type === 'attack') s = '敵の' + (m.targetName || '部隊') + 'を叩け';
+  else if (m.type === 'feint' && m.target) s = '敵の' + (m.targetName || '部隊') + 'を引きつけよ';
+  else if (m.type === 'escort') s = (m.friendName || '味方') + 'を護衛せよ';
+  else if (m.type === 'follow') s = (m.friendName || '味方') + 'について行け';
   else if (m.type === 'move') s = where + 'へ移れ';
   else if (m.type === 'reserve') s = (m.place ? where + 'で' : '') + '予備として待て';
   else if (m.type === 'delay') s = where + 'への敵を食い止めよ';
   else s = where + 'を' + TYPE_TEXT[m.type];
-  var extra = [EFFORT_TEXT[m.effort] || ''];
+  var extra = [MANNER_TEXT[m.manner] || '', m.type === 'follow' || m.type === 'reserve' ? '' : EFFORT_TEXT[m.effort] || ''];
   if (m.deadline != null) extra.push('期限 ' + clockText(m.deadline));
   return s + '(' + extra.filter(Boolean).join('、') + ')';
 }
@@ -784,6 +794,12 @@ function updateKnowledge(w) {
       c.pic.enemy[o.id] = enemyEntry(w, H, o);
       if (fresh) note(w, c, H.name + 'が敵の' + UNIT_TYPES[o.type].name + '(約' + c.pic.enemy[o.id].est + '人)を見つけた:' + placeName(w, o.x, o.y), 'spot', true);
     });
+  });
+  // 位置の報告:どの部隊も5分ごとに、上の指揮官全員へ今の位置を無線で知らせる
+  live.forEach(function (u, ui) {
+    if ((w.time + ui) % POS_EVERY !== 0) return;
+    var c = cmdOfUnit(w, u), sn = snap(u, w.time); sn.src = 'radio';
+    for (var k = c; k; k = k.parent ? getCmd(w, k.parent) : null) { if (k.alive) k.pic.own[u.id] = sn; }
   });
   // 司令部と別の場所にいる直属の部隊(偵察隊など)は、無線で報告する
   live.forEach(function (u) {
@@ -974,14 +990,15 @@ function setDest(w, u, x, y, opts) {
   return true;
 }
 function stopUnit(u) { u.dest = null; u.path = null; u.pathI = 0; }
-function orderDirect(w, unitId, x, y) {
+function orderDirect(w, unitId, x, y, manner) {
   // 直属の部隊への命令。司令部はすぐ、離れた部隊(偵察隊)には無線で5分
   var u = getUnit(w, unitId), p = playerCmd(w);
   if (!u || !u.alive || !p || p.units.indexOf(u.id) < 0) return false;
   if (x == null) { stopUnit(u); u.pendingMove = null; return true; }
-  if (u.id === p.hq) return setDest(w, u, x, y);
+  manner = manner || 'normal';
+  if (u.id === p.hq) { u.directManner = manner; stopUnit(u); return setDest(w, u, x, y, manner === 'stealth' ? { stealth: true } : null); }
   if (findPath(w.map, u.x, u.y, x, y) === null) return false;
-  u.pendingMove = { x: x, y: y, at: w.time + 5 };
+  u.pendingMove = { x: x, y: y, at: w.time + 5, manner: manner };
   return true;
 }
 
@@ -998,7 +1015,8 @@ function canSee(w, o, e, friendly) {
   if (d <= 200) return true;
   var dh = hSmooth(w.map, o.x, o.y) - hSmooth(w.map, e.x, e.y);
   var c = TERR[terrAt(w.map, e.x, e.y)].conceal;
-  if (w.time - e.movedAt <= 1) c *= 0.5;      // 動いていると見つかりやすい
+  if (w.time - e.movedAt <= 1 && !e.stealth) c *= 0.5; // 動いていると見つかりやすい(隠密なら目立たない)
+  if (e.stealth) c = c + (1 - c) * 0.3;        // 隠密:伏せて、音も立てない
   if (w.time - e.firedAt <= 5) c = 0;          // 撃つと位置がばれる
   if (dh > 0) c *= 1 - Math.min(0.5, dh / 120); // 上からは、森の中も少し見える
   if (friendly) c *= 0.5;                      // 味方は見分けやすい
@@ -1043,7 +1061,8 @@ function computeCombat(w) {
       if (d < t.range && d < bd && los(w.map, u.x, u.y, e.x, e.y)) { bd = d; best = e; }
     });
     if (!best) return;
-    var def = TERR[terrAt(w.map, best.x, best.y)].defense * (w.time - best.movedAt <= 1 ? 1.2 : 1);
+    if (u.holdFire && w.time - u.hitAt > 2 && bd > 300) return; // 隠密:見つからないよう撃たない
+    var def = TERR[terrAt(w.map, best.x, best.y)].defense * (w.time - best.movedAt <= 1 ? 1.2 : 1) * Math.min(2, 1 + 0.3 * crowdNear(w, best)); // 密集していると当たりやすい
     var amount = 0.004 * u.str * (1 - 0.7 * bd / t.range) * def * (1 - u.fat / 200) * (0.5 + u.mor / 200) * t.fire * (u.broken ? 0.3 : 1);
     dmg[best.id] = (dmg[best.id] || 0) + amount;
     u.firedAt = w.time; u.combatAt = w.time; u.dealt += amount; u.fat = Math.min(100, u.fat + 0.1);
@@ -1107,6 +1126,7 @@ function combatNotes(w) {
     }
   });
 }
+var POS_EVERY = 5; // 位置の報告の間隔(分)
 var HEAR = 7000; // 銃声が聞こえる距離(m)
 function hearFights(w) {
   if (!w.fires.length) { w.cmds.forEach(function (c) { if (c.sounds.length) c.sounds = c.sounds.filter(function (s) { return w.time - s.t <= 30; }); }); return; }
@@ -1188,8 +1208,10 @@ function routeWords(w, path) {
 function aliveSubs(w, c) { return c.subs.map(function (id) { return getCmd(w, id); }).filter(function (s) { return s && s.alive && getUnit(w, s.hq) && getUnit(w, s.hq).alive; }); }
 function thinkEvery(c) { return Math.round(25 - c.skill * 15); }
 function subPos(w, c, s) { var p = picPos(w, c, s.hq); return { x: p.x, y: p.y, t: p.t, str: p.str, max: p.max, broken: p.broken, alive: p.alive }; }
-function order(w, c, s, m) { sendMission(w, c.id, s.id, m); }
+function order(w, c, s, m) { if (!m.manner) m.manner = c.mission && c.mission.manner && c.mission.manner !== 'fast' ? c.mission.manner : 'normal'; sendMission(w, c.id, s.id, m); }
 function targetOf(w, c, m) {
+  if (m.friend) { var f = c.pic.own[m.friend]; if (f) return { x: f.x, y: f.y, r: 300, name: f.name, gone: !f.alive }; return { x: m.x, y: m.y, r: 300, name: m.friendName || '味方', gone: false }; }
+  if (m.type === 'feint' && m.target) { var q = c.pic.enemy[m.target]; if (q) return { x: q.x, y: q.y, r: 400, name: '敵の' + UNIT_TYPES[q.type].name, gone: !q.alive }; }
   if (m.type === 'attack') { var k = c.pic.enemy[m.target]; if (k) return { x: k.x, y: k.y, r: 300, name: '敵の' + UNIT_TYPES[k.type].name, gone: !k.alive }; return { x: m.x, y: m.y, r: 300, name: '敵', gone: false }; }
   var p = m.place ? getPlace(w, m.place) : null;
   return { x: m.x, y: m.y, r: m.r || 400, name: p ? p.name : placeName(w, m.x, m.y) };
@@ -1236,18 +1258,24 @@ function think(w, c) {
   var m = c.mission; if (!m) return;
   var subs = aliveSubs(w, c);
   var hq = getUnit(w, c.hq); if (!hq || !hq.alive) return;
-  var key = m.issuedAt + ':' + m.type + ':' + (m.place || m.target || '') + ':' + subs.length;
-  if (c.opKey !== key) { c.opKey = key; c.op = { phase: 'start', roles: {}, tries: 0, used: {} }; c.nextThink = w.time; }
+  if (idleInitiative(w, c)) m = c.mission;
+  if (c.opKey !== m.issuedAt + ':' + m.type + ':' + (m.place || m.target || '') + ':' + subs.length) { c.opKey = m.issuedAt + ':' + m.type + ':' + (m.place || m.target || '') + ':' + subs.length; c.op = { phase: 'start', roles: {}, tries: 0, used: {} }; c.nextThink = w.time; }
   moveOwnUnits(w, c, m, subs);
   if (!subs.length || w.time < c.nextThink) return;
   c.nextThink = w.time + thinkEvery(c);
   var op = c.op, T = targetOf(w, c, m);
   if (m.type === 'take' || m.type === 'attack') return runAttack(w, c, m, subs, op, T);
   if (m.type === 'hold' || m.type === 'delay') return runHold(w, c, m, subs, op, T);
+  if ((m.type === 'escort' || m.type === 'follow') && op.phase === 'start') {
+    op.phase = 'done';
+    subs.forEach(function (s2, i) { order(w, c, s2, { type: m.type, friend: m.friend, friendName: m.friendName, x: T.x, y: T.y, r: 300, effort: m.effort, manner: m.manner, slot: i - (subs.length - 1) / 2 }); });
+    setPlan(w, c, T.name + (m.type === 'escort' ? 'のそばに部隊を付けて守ります' : 'の後ろについて行きます'));
+    return;
+  }
   if (m.type === 'feint' && op.phase === 'start') {
     op.phase = 'done';
     var d0 = threatDir(w, c, T.x, T.y), back = { x: -d0.x, y: -d0.y }, pf = { x: -back.y, y: back.x };
-    subs.forEach(function (s2, i) { var off = (i - (subs.length - 1) / 2) * 500; order(w, c, s2, { type: 'feint', place: m.place, x: Math.round(T.x + pf.x * off), y: Math.round(T.y + pf.y * off), r: T.r, effort: 'feint' }); });
+    subs.forEach(function (s2, i) { var off = (i - (subs.length - 1) / 2) * 500; order(w, c, s2, { type: 'feint', place: m.place, target: m.target, targetName: m.targetName, x: Math.round(T.x + pf.x * off), y: Math.round(T.y + pf.y * off), r: T.r, effort: 'feint' }); });
     var hq0 = getUnit(w, c.hq);
     setPlan(w, c, T.name + 'の' + compass(hq0.x - T.x, hq0.y - T.y) + 'から遠く撃って、敵を引きつけます');
     return;
@@ -1257,13 +1285,30 @@ function think(w, c) {
     if (m.type === 'scout') {
       var rec = c.units.map(function (id) { return getUnit(w, id); }).filter(function (u) { return u && u.alive && u.type === 'recon'; })[0];
       if (rec) { setDest(w, rec, T.x, T.y, { avoid: avoidList(w, c), careful: true }); setPlan(w, c, '偵察隊を' + T.name + 'へ出します'); }
-      else { order(w, c, subs[0], { type: 'scout', place: m.place, x: T.x, y: T.y, r: T.r, effort: 'careful' }); setPlan(w, c, subs[0].title.replace(/長(\(赤\))?$/, '') + 'に' + T.name + 'を探らせます'); }
+      else { order(w, c, subs[0], { type: 'scout', place: m.place, x: T.x, y: T.y, r: T.r, effort: 'careful', manner: 'stealth' }); setPlan(w, c, subs[0].title.replace(/長(\(赤\))?$/, '') + 'に' + T.name + 'を探らせます'); }
       return;
     }
     var pts = holdLayout(w, c, subs, T, 400);
     subs.forEach(function (s, i) { order(w, c, s, { type: m.type === 'move' ? 'move' : 'reserve', place: null, x: Math.round(pts[i].x), y: Math.round(pts[i].y), r: 300, effort: 'careful' }); });
     setPlan(w, c, T.name + 'の近くに部隊を集めて待ちます');
   }
+}
+function idleInitiative(w, c) {
+  // 「待て」のまま命令が来ないと、上官の意図に沿って自分で動き出す(頑固・大胆なほど早い)
+  var m = c.mission;
+  if (!m || m.type !== 'reserve' || m.selfInit || m.from === 'gov') return false;
+  var P = c.parent ? getCmd(w, c.parent) : null, pm = P && P.alive ? P.mission : null;
+  if (!pm || pm.type === 'reserve') return false;
+  var limit = 50 + c.obey * 130 - c.bold * 40;
+  if (w.time - (m.issuedAt || 0) < limit) return false;
+  var goal = pm.place ? getPlace(w, pm.place) : null, gname = goal ? goal.name : placeName(w, pm.x, pm.y);
+  var nm = { type: 'hold', place: pm.place || null, x: pm.x, y: pm.y, r: pm.r || 400, effort: 'careful', deadline: pm.deadline, from: c.parent, issuedAt: (m.issuedAt || 0) + 0.5, selfInit: true };
+  if (pm.type === 'take' || pm.type === 'attack' || pm.type === 'move') { nm.type = c.bold >= 0.5 ? 'take' : 'scout'; nm.target = pm.target; }
+  if (pm.type === 'scout') nm.type = 'scout';
+  c.mission = nm; c.op = null;
+  var verb = { take: '取る', attack: '叩く', hold: '守る', delay: '食い止める', scout: '探る', move: '移る', feint: '引きつける' }[pm.type] || '守る';
+  note(w, c, '命令が来ないので、上官の意図(' + gname + 'を' + verb + ')に沿って、' + (nm.type === 'take' ? gname + 'へ攻めます' : nm.type === 'scout' ? gname + 'を探りに出ます' : gname + 'の守りにつきます'), 'request', true);
+  return true;
 }
 function setPlan(w, c, text) {
   if (c.planText === text) return;
@@ -1280,7 +1325,7 @@ function runAttack(w, c, m, subs, op, T) {
       op.phase = 'scout'; op.scoutUntil = w.time + Math.round(40 + c.skill * 40);
       var rec = c.units.map(function (id) { return getUnit(w, id); }).filter(function (u) { return u && u.alive && u.type === 'recon'; })[0];
       if (rec) setDest(w, rec, (T.x + getUnit(w, c.hq).x) / 2 * 0.3 + T.x * 0.7, (T.y + getUnit(w, c.hq).y) / 2 * 0.3 + T.y * 0.7, { avoid: avoidList(w, c), careful: true });
-      else order(w, c, subs[subs.length - 1], { type: 'scout', place: m.place, x: T.x, y: T.y, r: T.r, effort: 'careful' });
+      else order(w, c, subs[subs.length - 1], { type: 'scout', place: m.place, x: T.x, y: T.y, r: T.r, effort: 'careful', manner: 'stealth' });
       op.scoutWho = rec ? null : subs[subs.length - 1].id;
       setPlan(w, c, 'まず' + (rec ? '偵察隊' : subs[subs.length - 1].title.replace(/長(\(赤\))?$/, '')) + 'で' + T.name + 'の敵を探ります');
       return;
@@ -1307,10 +1352,12 @@ function runAttack(w, c, m, subs, op, T) {
     op.roles = roles; op.main = main; op.phase = 'assemble';
     op.assembleUntil = w.time + Math.round(160 - c.skill * 70);
     if (m.deadline != null) op.assembleUntil = Math.min(op.assembleUntil, Math.max(w.time + 30, m.deadline - 120));
-    subs.forEach(function (s) { var r = roles[s.id]; if (r) order(w, c, s, { type: r.role === 'reserve' ? 'reserve' : 'move', place: null, x: r.x, y: r.y, r: 300, effort: 'careful' }); });
+    var sneak = main.a !== 0 && c.skill >= 0.5 && m.manner !== 'fast'; // 腕のいい者は、回り込みを隠密に行う
+    subs.forEach(function (s) { var r = roles[s.id]; if (r) order(w, c, s, { type: r.role === 'reserve' ? 'reserve' : 'move', place: null, x: r.x, y: r.y, r: 300, effort: 'careful', manner: sneak && r.role === 'main' ? 'stealth' : undefined }); });
     var nm = function (s) { return s.title.replace(/長(\(赤\))?$/, ''); };
     var text = routeWords(w, main.path) + '、' + T.name + 'の' + main.side + 'から攻めます';
     if (main.a === 0) text = '正面の' + text.replace(T.name + 'の' + main.side + 'から攻めます', T.name + 'へ攻めます');
+    if (sneak) text = text.replace('から攻めます', 'へ隠密に回り込んで攻めます');
     if (support) text += '。' + nm(support) + 'で' + other.side + 'の敵を引きつけます';
     if (reserve) text += '。' + nm(reserve) + 'は予備に残します';
     if (op.tries) text = '(' + (op.tries + 1) + '回目)' + text;
@@ -1370,13 +1417,26 @@ function runAttack(w, c, m, subs, op, T) {
     else { op.phase = 'stalled'; c.planText = 'これ以上は攻められないので、今の位置を守っています'; note(w, c, 'これ以上の攻撃はできません。今の位置を守ります。新しい命令をください', 'request', true); }
   }
 }
+function chokepoint(w, c, T) {
+  // 敵が来る側にある橋や浅瀬(敵を食い止めやすい所)
+  var d = threatDir(w, c, T.x, T.y), best = null, bs = 1e9;
+  (w.map.places || []).forEach(function (p) {
+    if (p.kind !== 'bridge' && p.kind !== 'ford') return;
+    var dx = p.x - T.x, dy = p.y - T.y, l = Math.sqrt(dx * dx + dy * dy);
+    if (l < 1200 || l > 5000) return;
+    var front = (dx * d.x + dy * d.y) / l; if (front < 0.4) return;
+    var sc = l * (1.5 - front); if (sc < bs) { bs = sc; best = p; }
+  });
+  return best;
+}
 function runHold(w, c, m, subs, op, T) {
   // 守る場所に敵が入ったら、大胆な者ほど取り返しに行く
   var inside = picEnemies(w, c, T.x, T.y, T.r + 200, 15).filter(function (k) { return k.type === 'inf'; });
+  var nm = function (s) { return s.title.replace(/長(\(赤\))?$/, ''); };
   if (m.type === 'hold' && inside.length && c.bold > 0.35) {
     var es = inside.reduce(function (s, k) { return s + k.est; }, 0);
     if (forceOf(w, c) / Math.max(1, es) > (c.bold >= 0.65 ? 0.8 : 1.3) && op.phase !== 'counter') {
-      op.phase = 'counter';
+      op.phase = 'counter'; op.strike = null;
       var cx = inside.reduce(function (s, k) { return s + k.x; }, 0) / inside.length, cy = inside.reduce(function (s, k) { return s + k.y; }, 0) / inside.length;
       subs.forEach(function (s, i) { order(w, c, s, { type: 'take', place: null, x: Math.round(cx + (i - (subs.length - 1) / 2) * 300), y: Math.round(cy), r: 250, effort: 'full' }); });
       note(w, c, T.name + 'に入った敵を追い出します', 'plan', true);
@@ -1385,13 +1445,65 @@ function runHold(w, c, m, subs, op, T) {
   }
   if (op.phase === 'counter' && !inside.length) op.phase = 'start';
   if (op.phase === 'start') {
-    op.phase = 'hold';
-    var pts;
-    if (m.type === 'delay') { var d = threatDir(w, c, T.x, T.y); pts = holdLayout(w, c, subs, { x: T.x + d.x * 1500, y: T.y + d.y * 1500 }, T.r + 300); }
-    else pts = holdLayout(w, c, subs, T, T.r);
-    subs.forEach(function (s, i) { order(w, c, s, { type: m.type, place: m.place, x: Math.round(pts[i].x), y: Math.round(pts[i].y), r: 300, effort: m.effort, fx: T.x, fy: T.y, deadline: m.deadline }); });
-    setPlan(w, c, m.type === 'delay' ? T.name + 'の手前で敵を食い止め、押されたら少しずつ下がります' : T.name + 'の' + compass(threatDir(w, c, T.x, T.y).x, threatDir(w, c, T.x, T.y).y) + '側に陣を敷いて守ります');
+    op.phase = 'hold'; op.screen = null; op.lastPatrol = w.time;
+    var pts, holders = subs.slice(), text;
+    // 前衛:大胆な者は、敵が来る側の橋や浅瀬に一部を出して食い止める
+    var cp = m.type === 'hold' && subs.length >= 2 && c.bold >= 0.35 ? chokepoint(w, c, T) : null;
+    if (cp) {
+      var sc = holders.reduce(function (b, s) { return !b || s.bold > b.bold ? s : b; }, null);
+      holders = holders.filter(function (s) { return s !== sc; });
+      op.screen = sc.id;
+      var fp = bestCover(w, cp.x + (T.x - cp.x) * 0.1, cp.y + (T.y - cp.y) * 0.1, 300);
+      order(w, c, sc, { type: 'delay', place: cp.id, x: Math.round(fp.x), y: Math.round(fp.y), r: 300, effort: 'careful', fx: T.x, fy: T.y });
+    }
+    if (m.type === 'delay') { var d = threatDir(w, c, T.x, T.y); pts = holdLayout(w, c, holders, { x: T.x + d.x * 1500, y: T.y + d.y * 1500 }, T.r + 300); }
+    else pts = holdLayout(w, c, holders, T, T.r);
+    holders.forEach(function (s, i) { order(w, c, s, { type: m.type, place: m.place, x: Math.round(pts[i].x), y: Math.round(pts[i].y), r: 300, effort: m.effort, fx: T.x, fy: T.y, deadline: m.deadline }); });
+    var td = threatDir(w, c, T.x, T.y);
+    text = m.type === 'delay' ? T.name + 'の手前で敵を食い止め、押されたら少しずつ下がります' : T.name + 'の' + compass(td.x, td.y) + '側に陣を敷いて守ります';
+    if (cp) text = nm(subs.filter(function (s) { return s.id === op.screen; })[0]) + 'を前衛として' + cp.name + 'に出して敵を食い止め、' + text;
+    setPlan(w, c, text);
+    return;
   }
+  if (op.phase !== 'hold') return;
+  // 反撃:近くに孤立した弱い敵がいれば、一部で叩く
+  if (op.strike) {
+    var tk = c.pic.enemy[op.strike.target];
+    if (!tk || !tk.alive || w.time - tk.t > 60 || w.time > op.strike.until) {
+      note(w, c, (tk && !tk.alive ? '反撃は成功した。' : '反撃を終える。') + '元の陣地に戻ります', 'plan', true);
+      op.strike = null; op.phase = 'start';
+    }
+    return;
+  }
+  var need = c.bold >= 0.65 ? 1.2 : c.bold >= 0.4 ? 1.8 : 0;
+  if (need) {
+    var cands = picEnemies(w, c, T.x, T.y, 4500, 30).filter(function (k) { return k.type === 'inf'; });
+    var pick = null, pr = 0;
+    cands.forEach(function (k) {
+      var group = picEnemies(w, c, k.x, k.y, 1000, 30).filter(function (q) { return q.type === 'inf'; }).reduce(function (s, q) { return s + q.est; }, 0);
+      var avail = subs.filter(function (s) { return s.id !== op.screen; }).reduce(function (s2, s) { var p = subPos(w, c, s); return s2 + (p.broken ? 0 : p.str); }, 0);
+      var r = avail / Math.max(1, group);
+      if (r >= need && r > pr) { pr = r; pick = k; }
+    });
+    if (pick) {
+      var strikers = subs.filter(function (s) { return s.id !== op.screen; }).sort(function (a, b) { var pa = subPos(w, c, a), pb = subPos(w, c, b); return dist(pa.x, pa.y, pick.x, pick.y) - dist(pb.x, pb.y, pick.x, pick.y); });
+      if (strikers.length > 1 && c.bold < 0.65) strikers = strikers.slice(0, Math.ceil(strikers.length / 2)); // 慎重なら半分は残す
+      strikers.forEach(function (s) { order(w, c, s, { type: 'attack', target: pick.id, targetName: UNIT_TYPES[pick.type].name, place: null, x: pick.x, y: pick.y, r: 300, effort: 'full' }); });
+      op.strike = { target: pick.id, until: w.time + 180 };
+      note(w, c, placeName(w, pick.x, pick.y) + 'の敵(約' + pick.est + '人)は孤立している。' + strikers.map(nm).join('と') + 'で叩きます', 'plan', true);
+      return;
+    }
+  }
+  // 斥候:しばらく敵が見えなければ、偵察隊か部下の一つを前に出して探る
+  var known = picEnemies(w, c, T.x, T.y, 8000, 180).length;
+  if (!known && w.time - op.lastPatrol > 90 && c.bold >= 0.3) {
+    op.lastPatrol = w.time;
+    var dd = threatDir(w, c, T.x, T.y), tgt = landPoint(w, T.x + dd.x * 3500, T.y + dd.y * 3500);
+    var rec = c.units.map(function (id) { return getUnit(w, id); }).filter(function (u) { return u && u.alive && u.type === 'recon'; })[0];
+    if (rec) { setDest(w, rec, tgt.x, tgt.y, { avoid: avoidList(w, c), careful: true }); note(w, c, '敵が見えないので、偵察隊を' + placeName(w, tgt.x, tgt.y) + 'へ出して探らせる', 'info', false); }
+    else { var pat = subs.filter(function (s) { return s.id !== op.screen; }).slice(-1)[0]; if (pat) { order(w, c, pat, { type: 'scout', place: null, x: Math.round(tgt.x), y: Math.round(tgt.y), r: 400, effort: 'careful', manner: 'stealth' }); note(w, c, '敵が見えないので、' + nm(pat) + 'を斥候に出す', 'info', false); op.patrolBack = { id: pat.id, at: w.time + 120 }; } }
+  }
+  if (op.patrolBack && w.time >= op.patrolBack.at) { op.patrolBack = null; op.phase = 'start'; }
 }
 function moveOwnUnits(w, c, m, subs) {
   // 司令部は部下の後ろへ、偵察隊は高い所へ(偵察中は作戦で動かす)
@@ -1432,7 +1544,10 @@ function rallyPoint(w, u, c) {
   return { x: clamp(u.x - td.x * 1500, 100, MAP - 100), y: clamp(u.y - td.y * 1500, 100, MAP - 100) };
 }
 function unitBehavior(w, u, c) {
-  if (u.pendingMove && w.time >= u.pendingMove.at) { setDest(w, u, u.pendingMove.x, u.pendingMove.y); u.pendingMove = null; }
+  if (u.pendingMove && w.time >= u.pendingMove.at) { u.directManner = u.pendingMove.manner || 'normal'; stopUnit(u); setDest(w, u, u.pendingMove.x, u.pendingMove.y, u.directManner === 'stealth' ? { stealth: true } : null); u.pendingMove = null; }
+  // 動き方(隠密・急ぐ)
+  var man = c && c.ctrl !== 'player' && c.mission && u.type === 'inf' ? c.mission.manner : (u.directManner || (u.type === 'recon' && c && c.ctrl !== 'player' ? 'stealth' : 'normal'));
+  u.stealth = man === 'stealth' && !u.broken; u.fast = man === 'fast'; u.holdFire = u.stealth;
   if (u.mor < 25 && !u.broken) { u.broken = true; u.hiding = false; if (c) note(w, c, u.name + 'が崩れて後退し始めた', 'lost', true); }
   if (u.broken) {
     if (u.mor > 50) { u.broken = false; if (c) note(w, c, u.name + 'が立ち直った', 'info', true); }
@@ -1459,7 +1574,7 @@ function unitBehavior(w, u, c) {
   }
   var m = c.mission; if (!m) { u.posture = 'hold'; return; }
   var bold = c.bold, vis = visibleNear(w, c, u, 1500), vis2 = visibleNear(w, c, u, 2000);
-  var opts = { avoid: avoidList(w, c), careful: m.effort !== 'full' || bold < 0.5 };
+  var opts = { avoid: avoidList(w, c), careful: m.effort !== 'full' || bold < 0.5, stealth: u.stealth };
   // 疲れ
   var restLimit = bold >= 0.65 ? 95 : 85;
   if (u.resting) { if (u.fat < 50 || vis2.length) u.resting = false; }
@@ -1477,6 +1592,32 @@ function unitBehavior(w, u, c) {
   if (u.withdraw) { setDest(w, u, u.withdraw.x, u.withdraw.y); u.posture = 'move'; u.note = '下がっている(独断)'; return; }
 
   var T = { x: m.x, y: m.y, r: m.r || 300 };
+  if (m.type === 'feint' && m.target && c.pic.enemy[m.target]) { var kf = c.pic.enemy[m.target]; T = { x: kf.x, y: kf.y, r: 400 }; }
+  if ((m.type === 'escort' || m.type === 'follow') && m.friend) {
+    var F = c.pic.own[m.friend], fu = getUnit(w, m.friend);
+    if (fu && fu.alive && canSeeFriend(w, u, fu)) F = snap(fu, w.time); // 見えていれば今の位置
+    if (!F || !F.alive) { stopUnit(u); u.posture = 'hold'; if (!u.lostFriend) { u.lostFriend = true; note(w, c, (m.friendName || '味方') + 'がいなくなった。ここで待ちます', 'request', true); } u.note = '相手がいなくなったので待っている'; return; }
+    u.lostFriend = false;
+    var slot = m.slot || 0, dF = dist(u.x, u.y, F.x, F.y);
+    if (m.type === 'follow') {
+      var bx = u.x - F.x, by = u.y - F.y, bl = Math.sqrt(bx * bx + by * by) || 1;
+      var fp = { x: F.x + bx / bl * 300 + slot * 150, y: F.y + by / bl * 300 };
+      if (dF > 450) { setDest(w, u, fp.x, fp.y, opts.stealth ? { stealth: true } : null); u.posture = 'move'; u.note = (m.friendName || '味方') + 'について行く'; }
+      else { stopUnit(u); u.posture = 'hold'; u.note = (m.friendName || '味方') + 'のそばにいる'; }
+      return;
+    }
+    // 護衛:相手と敵の間に入り、近づく敵を追い払う
+    var near = picEnemies(w, c, F.x, F.y, 1200, 2).filter(function (k) { return k.type === 'inf' || k.type === 'recon'; });
+    if (near.length && dist(u.x, u.y, F.x, F.y) < 900) {
+      var e0 = near.reduce(function (b, k) { return !b || dist(k.x, k.y, F.x, F.y) < dist(b.x, b.y, F.x, F.y) ? k : b; }, null);
+      if (localRatio(w, c, u, near) >= 1.2 - bold * 0.4) { if (dist(u.x, u.y, e0.x, e0.y) > 300) setDest(w, u, e0.x, e0.y); else stopUnit(u); u.posture = 'fight'; u.note = (m.friendName || '味方') + 'に近づく敵を追い払っている'; return; }
+    }
+    var tdF = threatDir(w, c, F.x, F.y), pp = { x: -tdF.y, y: tdF.x };
+    var gp = landPoint(w, F.x + tdF.x * 350 + pp.x * slot * 300, F.y + tdF.y * 350 + pp.y * slot * 300);
+    if (dist(u.x, u.y, gp.x, gp.y) > 200) { setDest(w, u, gp.x, gp.y, opts.stealth ? { stealth: true } : null); u.posture = 'move'; u.note = (m.friendName || '味方') + 'を護衛している'; }
+    else { stopUnit(u); u.posture = 'hold'; u.note = (m.friendName || '味方') + 'を護衛している'; }
+    return;
+  }
   if (m.type === 'attack' && c.pic.enemy[m.target]) { var k = c.pic.enemy[m.target]; T = { x: k.x, y: k.y, r: 250 }; if (!k.alive) { stopUnit(u); u.note = '敵を壊滅させた'; return; } }
   var dT = dist(u.x, u.y, T.x, T.y);
   switch (m.type) {
@@ -1549,13 +1690,56 @@ function moveUnits(w) {
     if (!u.alive) return;
     if (u.path && u.pathI < u.path.length) {
       var i = idxAt(u.x, u.y), sp = cellSpeed(w.map, i) || FORD_SPEED;
-      walk(u, UNIT_TYPES[u.type].speed * sp * (1 - u.fat / 250) * (w.time - u.hitAt <= 2 ? 0.5 : 1));
+      if (u.stealth && sp >= ROAD_SPEED) sp = TERR[w.map.terr[i]].speed || FORD_SPEED;
+      var jam = 1;
+      if (onCrossing(w, u) || (u.path[u.pathI] && (w.map.road[idxAt(u.path[u.pathI].x, u.path[u.pathI].y)] === 2 || w.map.ford[idxAt(u.path[u.pathI].x, u.path[u.pathI].y)]))) {
+        var nx0 = u.path[u.pathI].x - u.x, ny0 = u.path[u.pathI].y - u.y, nl = Math.sqrt(nx0 * nx0 + ny0 * ny0) || 1;
+        w.units.forEach(function (o) {
+          if (o === u || !o.alive) return;
+          var ox = o.x - u.x, oy = o.y - u.y, od = Math.sqrt(ox * ox + oy * oy);
+          if (od < FOOT[u.type] + FOOT[o.type] + 60 && (ox * nx0 + oy * ny0) / nl > od * 0.5 && onCrossing(w, o)) jam = 0.25; // 渡っている部隊の後ろで待つ
+        });
+      }
+      u.jam = jam < 1;
+      walk(u, UNIT_TYPES[u.type].speed * sp * (1 - u.fat / 250) * (w.time - u.hitAt <= 2 ? 0.5 : 1) * (u.stealth ? 0.6 : u.fast ? 1.2 : 1) * jam);
       u.movedAt = w.time;
-      u.fat = Math.min(100, u.fat + (sp >= ROAD_SPEED ? 0.04 : 0.08));
+      u.fat = Math.min(100, u.fat + (sp >= ROAD_SPEED ? 0.04 : 0.08) * (u.fast ? 1.6 : u.stealth ? 0.8 : 1));
       if (u.pathI >= u.path.length) u.path = null;
     } else if (w.time - u.firedAt > 2 && w.time - u.hitAt > 2) u.fat = Math.max(0, u.fat - 0.15);
     if (w.time - u.hitAt > 10) u.mor = Math.min(100, u.mor + 0.05);
   });
+}
+
+/* --- 部隊の広がり(重なれない・橋では詰まる) --- */
+var FOOT = { inf: 150, recon: 80, hq: 70 }; // 部隊が占める広さ(半径m)
+function onCrossing(w, u) { var i = idxAt(u.x, u.y); return w.map.road[i] === 2 || w.map.ford[i] === 1; }
+function nudge(w, u, dx, dy) {
+  var nx = clamp(u.x + dx, 1, MAP - 1), ny = clamp(u.y + dy, 1, MAP - 1), i = idxAt(nx, ny);
+  if (!passable(w.map, i)) return false;
+  if (w.map.terr[i] === WATER && !onCrossing(w, u)) return false; // 押されて川に入ることはない
+  u.x = nx; u.y = ny; return true;
+}
+function separate(w) {
+  var us = w.units.filter(function (u) { return u.alive; });
+  for (var pass = 0; pass < 3; pass++) {
+    for (var i = 0; i < us.length; i++) for (var j = i + 1; j < us.length; j++) {
+      var a = us[i], b = us[j], minD = FOOT[a.type] + FOOT[b.type];
+      var dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= minD) continue;
+      if (d < 1) { var ang = (hash3(a.id, b.id, 'sep') + 1) * Math.PI; dx = Math.cos(ang); dy = Math.sin(ang); d = 1; }
+      var ux = dx / d, uy = dy / d, over = minD - d;
+      if (onCrossing(w, a) || onCrossing(w, b)) over *= 0.3; // 橋の上はすれ違いにくいが、少しずつは通れる
+      var am = a.path && a.pathI < a.path.length, bm = b.path && b.pathI < b.path.length;
+      var wa = am && !bm ? 0.8 : !am && bm ? 0.2 : 0.5; // 動いている方がよける
+      if (!nudge(w, a, -ux * over * wa, -uy * over * wa)) wa = 0;
+      nudge(w, b, ux * over * (1 - wa), uy * over * (1 - wa));
+    }
+  }
+}
+function crowdNear(w, e) {
+  var n = 0;
+  w.units.forEach(function (f) { if (f !== e && f.alive && f.side === e.side && dist(f.x, f.y, e.x, e.y) < 450) n++; });
+  return n;
 }
 
 /* --- 目標の状況(遊ぶ人が知っている範囲で) --- */
@@ -1585,6 +1769,7 @@ function tick(w) {
   w.units.forEach(function (u) { if (u.alive) unitBehavior(w, u, cmdOfUnit(w, u)); });
   moveMsgs(w);
   moveUnits(w);
+  separate(w);
   computeVision(w);
   computeCombat(w);
   updateKnowledge(w);
@@ -1613,6 +1798,7 @@ Clock.prototype.advance = function (nowMs) {
 Clock.prototype.frac = function () { return this.acc / 60; };
 
 var api = {
+  MANNER_TEXT: MANNER_TEXT, FOOT: FOOT, separate: separate, crowdNear: crowdNear,
   VERSION: VERSION, MAP: MAP, CELL: CELL, N: N, TERR: TERR, UNIT_TYPES: UNIT_TYPES,
   PLAIN: PLAIN, FOREST: FOREST, TOWN: TOWN, WATER: WATER, COURIER_SPEED: COURIER_SPEED,
   TYPE_TEXT: TYPE_TEXT, EFFORT_TEXT: EFFORT_TEXT,
@@ -1623,7 +1809,7 @@ var api = {
   think: think, unitBehavior: unitBehavior, moveUnits: moveUnits, destroyUnit: destroyUnit, receiveOrder: receiveOrder, chooseAxis: chooseAxis,
   idxAt: idxAt, terrAt: terrAt, hAt: hAt, cellSpeed: cellSpeed, clockText: clockText, missionText: missionText,
   placeName: placeName, personality: personality, skillText: skillText, obeyText: obeyText, objectiveStatus: objectiveStatus, truthStatus: truthStatus,
-  Clock: Clock, dist: dist, snap: snap, makePlaces: makePlaces, HEAR: HEAR, viewshed: viewshed, sightRange: sightRange
+  Clock: Clock, dist: dist, snap: snap, makePlaces: makePlaces, HEAR: HEAR, POS_EVERY: POS_EVERY, viewshed: viewshed, sightRange: sightRange
 };
 root.__wargameRules = api;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -1926,8 +2112,9 @@ function ownEntries(w, me) {
   Object.keys(me.pic.own).forEach(function (id) {
     var k = me.pic.own[id]; if (!k.alive) return;
     var u = R.getUnit(w, id), live = k.t >= w.time && u && u.alive;
-    var p = live ? lerpPos(u) : k;
-    out.push({ id: id, k: k, live: live, x: p.x, y: p.y });
+    var p = live && k.src !== 'radio' ? lerpPos(u) : k;
+    var fresh = w.time - k.t <= R.POS_EVERY + 1; // 位置の報告が届いている
+    out.push({ id: id, k: k, live: live, fresh: fresh, x: p.x, y: p.y });
   });
   return out;
 }
@@ -1967,8 +2154,11 @@ function draw() {
   me.subs.forEach(function (sid) {
     var s = R.getCmd(w, sid), sent = S.sent[sid]; if (!s || !sent) return;
     var e = byId[s.hq]; if (!e) return;
-    var tp = toScreen(sent.x, sent.y);
-    arrow(g, toScreen(e.x, e.y), tp, col, 1.6, sent.type === 'hold' || sent.type === 'reserve' || sent.type === 'delay' ? [4, 4] : null);
+    var tx = sent.x, ty = sent.y;
+    if (sent.friend && me.pic.own[sent.friend]) { tx = me.pic.own[sent.friend].x; ty = me.pic.own[sent.friend].y; }
+    if (sent.target && me.pic.enemy[sent.target]) { tx = me.pic.enemy[sent.target].x; ty = me.pic.enemy[sent.target].y; }
+    var tp = toScreen(tx, ty);
+    arrow(g, toScreen(e.x, e.y), tp, sent.manner === 'stealth' ? PAL.ink : col, 1.6, sent.type === 'hold' || sent.type === 'reserve' || sent.type === 'delay' || sent.manner === 'stealth' ? [4, 4] : null);
   });
   drawSounds(g, me);
   // 敵(今見えているもの/最後に見た場所)
@@ -1979,14 +2169,22 @@ function draw() {
     drawSymbol(g, sp.x, sp.y, kk.type, ecol, live ? {} : { ghost: true, alpha: Math.max(0.3, 0.85 - ago / 300) });
     if (!live) label(g, agoText(ago), sp.x, sp.y + 20, { size: 10, color: ecol });
   });
+  // 近づいたときは、味方の部隊が占める広さを描く
+  if (S.view.s > 0.1) own.forEach(function (e) {
+    if (!(e.live || e.fresh)) return;
+    var sp0 = toScreen(e.x, e.y), rr = R.FOOT[e.k.type] * S.view.s;
+    g.save(); g.fillStyle = col; g.globalAlpha = 0.12; g.beginPath(); g.arc(sp0.x, sp0.y, rr, 0, 6.3); g.fill();
+    g.globalAlpha = 0.35; g.strokeStyle = col; g.lineWidth = 1; g.stroke(); g.restore();
+  });
   // 味方(報告で知っている位置)
   own.forEach(function (e) {
     var sp = toScreen(e.x, e.y), k2 = e.k, ago = w.time - k2.t;
     var mine = me.units.indexOf(e.id) >= 0;
     var u = R.getUnit(w, e.id);
     if (mine && u && u.dest && e.live) arrow(g, sp, toScreen(u.dest.x, u.dest.y), PAL.ink, 1.2, [3, 3]);
-    drawSymbol(g, sp.x, sp.y, k2.type, col, { mark: sizeMarkOf(w, k2.type, k2.cmd), broken: k2.broken, bar: k2.str / k2.max, ghost: !e.live, alpha: e.live ? 1 : Math.max(0.45, 0.9 - ago / 400) });
-    if (!e.live) label(g, agoText(ago) + (k2.fighting ? '・交戦中' : ''), sp.x, sp.y + 22, { size: 10, color: k2.fighting ? PAL.red : col });
+    var ok2 = e.live || e.fresh;
+    drawSymbol(g, sp.x, sp.y, k2.type, col, { mark: sizeMarkOf(w, k2.type, k2.cmd), broken: k2.broken, bar: k2.str / k2.max, ghost: !ok2, alpha: ok2 ? 1 : Math.max(0.45, 0.9 - ago / 400) });
+    if (!ok2) label(g, '連絡なし ' + agoText(ago) + (k2.fighting ? '・交戦中' : ''), sp.x, sp.y + 22, { size: 10, color: k2.fighting ? PAL.red : col });
     else if (k2.fighting) label(g, '交戦中', sp.x, sp.y + 22, { size: 10, weight: 700, color: PAL.red });
     if (mine) { g.save(); g.strokeStyle = PAL.grease; g.lineWidth = 2; g.strokeRect(sp.x - 16, sp.y - 12, 32, 24); g.restore(); }
   });
@@ -2066,14 +2264,17 @@ function renderSheet() {
   }
   var e = me.pic.own[S.sel.id];
   if (!e) { S.sel = null; return renderSheet(); }
-  var live = e.t >= w.time, rel = relation(w, S.sel.id), u = R.getUnit(w, S.sel.id);
+  var live = e.t >= w.time && e.src !== 'radio', rel = relation(w, S.sel.id), u = R.getUnit(w, S.sel.id);
   var lead = R.getCmd(w, e.cmd);
   var stat = function (lab, v, f) { return '<div class="stat">' + lab + '<b>' + v + '</b>' + (f != null ? '<div class="meter"><i style="width:' + Math.round(f * 100) + '%"></i></div>' : '') + '</div>'; };
-  html += '<h2>' + esc(e.name) + '<small>' + R.UNIT_TYPES[e.type].name + '・' + (live ? '今見えている' : agoText(w.time - e.t) + 'の報告') + '</small></h2>';
+  var ageE = w.time - e.t;
+  html += '<h2>' + esc(e.name) + '<small>' + R.UNIT_TYPES[e.type].name + '・' + (live ? '今見えている' : ageE <= R.POS_EVERY + 1 ? '位置の報告(' + agoText(ageE) + ')' : '連絡なし(最後の報告は' + agoText(ageE) + ')') + '</small></h2>';
   html += '<div class="stats">' + stat('人数', e.str + '人', e.str / e.max) + stat('士気', e.mor, e.mor / 100) + stat('状態', e.broken ? '崩れた' : '保っている') + '</div>';
   html += '<div class="row"><span class="k">いた場所</span>' + esc(R.placeName(w, e.x, e.y)) + '・' + R.TERR[R.terrAt(w.map, e.x, e.y)].name + '・高さ' + Math.round(R.hAt(w.map, e.x, e.y)) + 'm</div>';
   if (e.fighting) html += '<div class="plan" style="border-color:var(--red)">交戦中' + (live ? '(今見えている)' : '(報告の時点)') + '</div>';
   if (e.note) html += '<div class="row"><span class="k">ようす</span>' + esc(e.note) + '</div>';
+  if (live && u && u.jam) html += '<p class="note">橋や浅瀬が詰まっていて、前の部隊が渡り終えるのを待っています。</p>';
+  if (live && u && R.crowdNear(w, u) >= 2) html += '<p class="note">まわりに味方が密集しています。撃たれると損害が大きくなります。</p>';
   if (lead) {
     html += '<div class="row"><span class="k">指揮官</span>' + esc(lead.title) + (lead.id === me.id ? '(あなた)' : '') + '</div>';
     if (lead.id !== me.id) html += attrsHtml(lead);
@@ -2088,7 +2289,12 @@ function renderSheet() {
   } else if (rel.kind === 'direct') {
     var isHQ = S.sel.id === me.hq;
     if (S.pick === 'move') html += '<div class="form"><div class="pickHint">地図をタップして、行き先を選んでください。</div><div class="acts"><button class="btn" data-act="cancelPick">やめる</button></div></div>';
-    else html += '<div class="acts"><button class="btn main" data-act="move">' + (isHQ ? 'ここへ動かす(すぐ動く)' : 'ここへ動かす(無線で5分)') + '</button>' + (u && (u.dest || u.pendingMove) ? '<button class="btn" data-act="stop">止まる</button>' : '') + '</div>';
+    else {
+      var dm = S.directManner || 'normal';
+      html += '<div class="field"><span>動き方</span><div class="seg">' + [['normal', 'ふつう'], ['stealth', '隠密'], ['fast', '急いで']].map(function (o) { return '<button data-f="dm" data-v="' + o[0] + '" aria-pressed="' + (dm === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div></div>';
+      if (u && u.stealth) html += '<p class="note">今は隠密で動いています(撃たれない限り撃ちません)。</p>';
+      html += '<div class="acts"><button class="btn main" data-act="move">' + (isHQ ? 'ここへ動かす(すぐ動く)' : 'ここへ動かす(無線で5分)') + '</button>' + (u && (u.dest || u.pendingMove) ? '<button class="btn" data-act="stop">止まる</button>' : '') + '</div>';
+    }
   } else if (rel.kind === 'other') {
     html += '<p class="note">あなたの直接の部下ではありません。動かすには、この部隊の上官に任務を出します。</p>';
   }
@@ -2099,37 +2305,49 @@ function placesFor(w, c) {
   var me = R.playerCmd(w), e = me.pic.own[c.hq] || { x: R.MAP / 2, y: R.MAP / 2 };
   return (w.map.places || []).slice().sort(function (a, b) { return R.dist(a.x, a.y, e.x, e.y) - R.dist(b.x, b.y, e.x, e.y); });
 }
+var KINDS = { take: ['place', 'point'], hold: ['place', 'point'], delay: ['place', 'point'], scout: ['place', 'point'], attack: ['enemy'], feint: ['enemy', 'place', 'point'], escort: ['friend'], follow: ['friend'], move: ['place', 'point'], reserve: ['here', 'place', 'point'] };
+var KIND_TEXT = { place: '名前のある場所', point: '地図の地点', enemy: '敵の部隊', friend: '味方の部隊', here: '今いる場所' };
 function formHtml(w, c) {
   var f = S.form, me = R.playerCmd(w);
   function seg(field, opts) {
     return '<div class="seg">' + opts.map(function (o) { return '<button data-f="' + field + '" data-v="' + o[0] + '" aria-pressed="' + (String(f[field]) === String(o[0])) + '">' + o[1] + '</button>'; }).join('') + '</div>';
   }
-  var target;
-  if (f.type === 'attack') {
+  var kinds = KINDS[f.type], target = '';
+  if (kinds.length > 1) target += seg('tk', kinds.map(function (k) { return [k, KIND_TEXT[k]]; }));
+  if (f.tk === 'enemy') {
     var k = f.target ? me.pic.enemy[f.target] : null;
-    target = k ? '<div class="row">敵の' + R.UNIT_TYPES[k.type].name + '(約' + k.est + '人・' + esc(R.placeName(w, k.x, k.y)) + ')</div>' : '<div class="pickHint">地図で、叩く敵の印をタップしてください。</div>';
-  } else {
-    var opts = (f.type === 'reserve' ? '<option value="">今いる場所で</option>' : '') + placesFor(w, c).map(function (p) { return '<option value="' + p.id + '"' + (f.place === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('');
-    target = '<select class="place" data-f="place" aria-label="目標の場所">' + (f.place || f.type === 'reserve' ? '' : '<option value="" selected>選んでください</option>') + opts + '</select><p class="note">地図の場所をタップしても選べます。</p>';
+    target += k ? '<div class="row">敵の' + R.UNIT_TYPES[k.type].name + '(約' + k.est + '人・' + esc(R.placeName(w, k.x, k.y)) + ')</div>' : '<div class="pickHint">地図で、' + (f.type === 'attack' ? '叩く' : '引きつける') + '敵の印をタップしてください。</div>';
+  } else if (f.tk === 'friend') {
+    var fe = f.friend ? me.pic.own[f.friend] : null;
+    target += fe ? '<div class="row">' + esc(fe.name) + '(' + esc(R.placeName(w, fe.x, fe.y)) + ')</div>' : '<div class="pickHint">地図で、' + (f.type === 'escort' ? '護衛する' : 'ついて行く') + '味方の印をタップしてください。</div>';
+  } else if (f.tk === 'point') {
+    target += f.x != null ? '<div class="row">' + esc(R.placeName(w, f.x, f.y)) + '・高さ' + Math.round(R.hAt(w.map, f.x, f.y)) + 'm</div>' : '<div class="pickHint">地図をタップして、地点を選んでください。</div>';
+  } else if (f.tk === 'place') {
+    var opts = placesFor(w, c).map(function (p) { return '<option value="' + p.id + '"' + (f.place === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('');
+    target += '<select class="place" data-f="place" aria-label="目標の場所">' + (f.place ? '' : '<option value="" selected>選んでください</option>') + opts + '</select><p class="note">地図の場所をタップしても選べます。</p>';
   }
-  var ready = f.type === 'attack' ? !!f.target : (f.type === 'reserve' || !!f.place);
+  var ready = f.tk === 'enemy' ? !!f.target : f.tk === 'friend' ? !!f.friend : f.tk === 'here' ? true : f.tk === 'place' ? !!f.place : f.x != null;
   var via = commsText(w, me, c);
   return '<div class="form">' +
-    '<div class="field"><span>何をするか</span>' + seg('type', [['take', '取れ'], ['hold', '守れ'], ['delay', '食い止めよ'], ['scout', '探れ'], ['attack', '叩け'], ['reserve', '待て']]) + '</div>' +
+    '<div class="field"><span>何をするか</span>' + seg('type', [['take', '取れ'], ['hold', '守れ'], ['delay', '食い止めよ'], ['scout', '探れ'], ['attack', '叩け'], ['feint', '引きつけよ'], ['escort', '護衛せよ'], ['follow', 'ついて行け'], ['move', '移れ'], ['reserve', '待て']]) + '</div>' +
     '<div class="field"><span>目標</span>' + target + '</div>' +
-    '<div class="field"><span>力の入れ方</span>' + seg('effort', [['full', '全力で'], ['careful', '損害を抑えて'], ['feint', '引きつけるだけ']]) + '</div>' +
+    '<div class="field"><span>動き方</span>' + seg('manner', [['normal', 'ふつう'], ['stealth', '隠密(見つかりにくく、撃たれない限り撃たない)'], ['fast', '急いで']]) + '</div>' +
+    (f.type === 'follow' || f.type === 'reserve' ? '' : '<div class="field"><span>力の入れ方</span>' + seg('effort', [['full', '全力で'], ['careful', '損害を抑えて']]) + '</div>') +
     '<div class="field"><span>期限</span>' + seg('deadline', [['none', 'なし'], [120, '2時間後'], [360, '6時間後'], [720, '12時間後']]) + '</div>' +
     '<p class="note">やり方は' + esc(c.title) + 'が考えます。' + via + '</p>' +
     '<div class="acts"><button class="btn main" data-act="send"' + (ready ? '' : ' disabled') + '>命令を出す</button><button class="btn" data-act="cancelForm">やめる</button></div>' +
     '</div>';
 }
 function commsText(w, me, c) { return me.subs.length && c.subs.length ? '無線で送ります(届くまで約15分)。' : '伝令が走って届けます(敵の近くを通ると捕まります)。'; }
+function pickFor(f) { return { place: 'place', point: 'point', enemy: 'enemy', friend: 'friend', here: null }[f.tk]; }
 function onSheetClick(e) {
   var b = e.target.closest('button'); if (!b) return;
   var w = S.w, act = b.dataset.act;
+  if (b.dataset.f === 'dm') { S.directManner = b.dataset.v; SE.play('tab'); renderSheet(); return; }
   if (b.dataset.f) {
     var v = b.dataset.v; S.form[b.dataset.f] = v;
-    if (b.dataset.f === 'type') { S.pick = v === 'attack' ? 'enemy' : 'place'; if (v === 'attack') S.form.place = null; else S.form.target = null; syncFormPoint(); }
+    if (b.dataset.f === 'type') { if (KINDS[v].indexOf(S.form.tk) < 0) S.form.tk = KINDS[v][0]; if (v === 'feint' && S.form.effort === 'full') S.form.effort = 'careful'; }
+    if (b.dataset.f === 'type' || b.dataset.f === 'tk') { S.pick = pickFor(S.form); syncFormPoint(); }
     SE.play('tab'); renderSheet(); S.dirty = true; return;
   }
   if (act === 'close') { select(null); return; }
@@ -2137,7 +2355,7 @@ function onSheetClick(e) {
   if (act === 'cancelPick') { S.pick = null; renderSheet(); return; }
   if (act === 'stop') { R.orderDirect(w, S.sel.id, null); SE.play('tap'); renderSheet(); S.dirty = true; return; }
   if (act === 'mission') { var u = R.getUnit(w, S.sel.id); startForm(u.cmd); return; }
-  if (act === 'pickEnemy') { S.form.target = S.sel.id; syncFormPoint(); var c = R.getCmd(w, S.form.to); S.sel = { kind: 'unit', id: c.hq }; S.pick = null; SE.play('tap'); renderSheet(); S.dirty = true; return; }
+  if (act === 'pickEnemy') { S.form.target = S.sel.id; S.form.tk = 'enemy'; syncFormPoint(); var c = R.getCmd(w, S.form.to); S.sel = { kind: 'unit', id: c.hq }; S.pick = null; SE.play('tap'); renderSheet(); S.dirty = true; return; }
   if (act === 'cancelForm') { S.form = null; S.pick = null; renderSheet(); S.dirty = true; return; }
   if (act === 'send') { sendForm(); return; }
 }
@@ -2146,25 +2364,32 @@ function onSheetChange(e) {
 }
 function syncFormPoint() {
   var w = S.w, f = S.form, me = R.playerCmd(w); if (!f) return;
-  if (f.type === 'attack') { var k = f.target ? me.pic.enemy[f.target] : null; f.x = k ? k.x : null; f.y = k ? k.y : null; f.r = 300; return; }
-  var p = f.place ? R.getPlace(w, f.place) : null;
-  if (p) { f.x = p.x; f.y = p.y; f.r = p.r; }
-  else if (f.type === 'reserve') { var c = R.getCmd(w, f.to), e = me.pic.own[c.hq]; f.x = e ? e.x : null; f.y = e ? e.y : null; f.r = 300; }
-  else { f.x = null; f.y = null; }
+  if (f.tk === 'enemy') { var k = f.target ? me.pic.enemy[f.target] : null; f.x = k ? k.x : null; f.y = k ? k.y : null; f.r = 300; return; }
+  if (f.tk === 'friend') { var fe = f.friend ? me.pic.own[f.friend] : null; f.x = fe ? fe.x : null; f.y = fe ? fe.y : null; f.r = 300; return; }
+  if (f.tk === 'place') { var p = f.place ? R.getPlace(w, f.place) : null; if (p) { f.x = p.x; f.y = p.y; f.r = p.r; } else { f.x = null; f.y = null; } return; }
+  if (f.tk === 'here') { var c = R.getCmd(w, f.to), e = me.pic.own[c.hq]; f.x = e ? e.x : null; f.y = e ? e.y : null; f.r = 300; return; }
+  if (f.tk === 'point') { f.r = 400; if (f.px != null) { f.x = f.px; f.y = f.py; } else { f.x = null; f.y = null; } }
 }
 function startForm(cmdId) {
-  var c = R.getCmd(S.w, cmdId), prev = S.sent[cmdId];
-  S.form = { to: cmdId, type: 'take', place: null, target: null, effort: 'full', deadline: 'none', x: null, y: null, r: 400 };
-  if (prev) { S.form.type = prev.type === 'move' ? 'take' : prev.type; S.form.place = prev.place || null; S.form.target = prev.target || null; S.form.effort = prev.effort || 'full'; }
+  var prev = S.sent[cmdId];
+  S.form = { to: cmdId, type: 'take', tk: 'place', place: null, target: null, friend: null, px: null, py: null, effort: 'full', manner: 'normal', deadline: 'none', x: null, y: null, r: 400 };
+  if (prev) {
+    var t = prev.type === 'move' && !prev.tk ? 'take' : prev.type;
+    S.form.type = KINDS[t] ? t : 'take'; S.form.tk = prev.tk && KINDS[S.form.type].indexOf(prev.tk) >= 0 ? prev.tk : KINDS[S.form.type][0];
+    S.form.place = prev.place || null; S.form.target = prev.target || null; S.form.friend = prev.friend || null;
+    if (prev.tk === 'point') { S.form.px = prev.x; S.form.py = prev.y; }
+    S.form.effort = prev.effort === 'feint' ? 'careful' : prev.effort || 'full'; S.form.manner = prev.manner || 'normal';
+  }
   syncFormPoint();
-  S.pick = S.form.type === 'attack' ? 'enemy' : 'place'; SE.play('tap'); renderSheet(); S.dirty = true;
+  S.pick = pickFor(S.form); SE.play('tap'); renderSheet(); S.dirty = true;
 }
 function sendForm() {
   var w = S.w, f = S.form, me = R.playerCmd(w);
   if (!f || !me || f.x == null) { SE.play('error'); return false; }
-  var k0 = f.type === 'attack' ? me.pic.enemy[f.target] : null;
-  var m = { type: f.type, place: f.type === 'attack' ? null : f.place, target: f.type === 'attack' ? f.target : null, targetName: k0 ? R.UNIT_TYPES[k0.type].name : null,
-    x: Math.round(f.x), y: Math.round(f.y), r: f.r || 400, effort: f.effort, deadline: f.deadline === 'none' ? null : w.time + (+f.deadline) };
+  var k0 = f.tk === 'enemy' ? me.pic.enemy[f.target] : null, f0 = f.tk === 'friend' ? me.pic.own[f.friend] : null;
+  var m = { type: f.type, tk: f.tk, place: f.tk === 'place' ? f.place : null, target: f.tk === 'enemy' ? f.target : null, targetName: k0 ? R.UNIT_TYPES[k0.type].name : null,
+    friend: f.tk === 'friend' ? f.friend : null, friendName: f0 ? f0.name : null,
+    x: Math.round(f.x), y: Math.round(f.y), r: f.r || 400, effort: f.type === 'feint' ? 'feint' : f.effort, manner: f.manner, deadline: f.deadline === 'none' ? null : w.time + (+f.deadline) };
   var k = R.sendMission(w, me.id, f.to, m);
   if (!k) { toast('命令を出せませんでした(届け先がいない)'); SE.play('error'); return false; }
   var to = R.getCmd(w, f.to);
@@ -2344,15 +2569,25 @@ function hitTest(sx, sy) {
   });
   return best;
 }
+function backToSub() {
+  var c = R.getCmd(S.w, S.form.to); S.sel = { kind: 'unit', id: c.hq }; SE.play('tap'); renderSheet(); S.dirty = true;
+}
 function tapMap(sx, sy) {
   var w = S.w, p = toWorld(sx, sy);
   if (S.pick === 'move' && S.sel) {
-    var ok = R.orderDirect(w, S.sel.id, p.x, p.y);
+    var ok = R.orderDirect(w, S.sel.id, p.x, p.y, S.directManner || 'normal');
     S.pick = null; SE.play(ok ? 'send' : 'error'); toast(ok ? (S.sel.id === R.playerCmd(w).hq ? '動き出しました' : '無線で命令を送りました(5分で届く)') : 'そこへは行けません'); renderSheet(); S.dirty = true; return;
   }
   var h = hitTest(sx, sy);
   if (S.form && S.pick === 'enemy' && h && h.kind === 'known') {
-    S.form.target = h.id; syncFormPoint(); var c = R.getCmd(w, S.form.to); S.sel = { kind: 'unit', id: c.hq }; S.pick = null; SE.play('tap'); renderSheet(); S.dirty = true; return;
+    S.form.target = h.id; syncFormPoint(); backToSub(); return;
+  }
+  if (S.form && S.pick === 'friend' && h && h.kind === 'unit') {
+    var fc0 = R.getCmd(w, S.form.to);
+    if (fc0 && fc0.hq !== h.id) { S.form.friend = h.id; syncFormPoint(); backToSub(); return; }
+  }
+  if (S.form && S.pick === 'point' && p.x >= 0 && p.y >= 0 && p.x <= R.MAP && p.y <= R.MAP) {
+    S.form.px = Math.round(p.x); S.form.py = Math.round(p.y); syncFormPoint(); SE.play('tap'); renderSheet(); S.dirty = true; return;
   }
   if (S.form && S.pick === 'place' && !h) {
     // いちばん近い、名前のある場所を目標にする
