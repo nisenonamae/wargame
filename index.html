@@ -203,6 +203,8 @@ select.place { font: inherit; min-height: 38px; border: 1px solid var(--line); b
 #logList li.fight span { color: var(--red); }
 #logList li.sound span { color: var(--pencil); font-style: normal; }
 #logList li.sound span::before { content: "♪ "; color: var(--grease); }
+#zoom button svg { display: block; margin: auto; }
+#zoom button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 </style>
 </head>
 <body>
@@ -229,6 +231,7 @@ select.place { font: inherit; min-height: 38px; border: 1px solid var(--line); b
   <button id="zin" aria-label="近づける">＋</button>
   <button id="zout" aria-label="遠ざける">−</button>
   <button id="zfit" aria-label="全体を見る">□</button>
+  <button id="viewBtn" aria-label="司令部から見える範囲" aria-pressed="true" title="司令部から見える範囲"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></svg></button>
 </div>
 
 <section id="sheet" aria-live="polite"></section>
@@ -280,7 +283,7 @@ select.place { font: inherit; min-height: 38px; border: 1px solid var(--line); b
 (function (root) {
 'use strict';
 
-var VERSION = '2026-10-12 r4';
+var VERSION = '2026-10-12 r5';
 var MAP = 10000;          // 地図の一辺(m)
 var CELL = 100;           // 計算用の見えない升目(m)
 var N = MAP / CELL;       // 一辺の升目の数
@@ -297,7 +300,7 @@ var ROAD_SPEED = 1.6, FORD_SPEED = 0.3;
 var UNIT_TYPES = {
   inf:     { name: '歩兵大隊', speed: 55,  sight: 3000, range: 800, fire: 1.0 },
   recon:   { name: '偵察隊',   speed: 220, sight: 5000, range: 500, fire: 0.5 },
-  hq:      { name: '司令部',   speed: 80,  sight: 2500, range: 300, fire: 0.3 }
+  hq:      { name: '司令部',   speed: 80,  sight: 3000, range: 300, fire: 0.3 }
 };
 var COURIER_SPEED = 400;  // 伝令(m/分)
 var COURIER_CATCH = 250;  // 敵にこれより近づくと捕まる
@@ -470,6 +473,7 @@ function makePlaces(map) {
   });
   var used = {};
   chosen.forEach(function (p) {
+    for (var cy = Math.max(0, p.y - 4); cy <= Math.min(N - 1, p.y + 4); cy++) for (var cx = Math.max(0, p.x - 4); cx <= Math.min(N - 1, p.x + 4); cx++) { var ci = cy * N + cx; if (map.terr[ci] === FOREST && (cx - p.x) * (cx - p.x) + (cy - p.y) * (cy - p.y) <= 17) map.terr[ci] = PLAIN; }
     var nm = Math.round(p.h) + '高地'; while (used[nm]) nm += "'"; used[nm] = 1;
     places.push({ id: 'p' + places.length, name: nm, kind: 'hill', x: (p.x + 0.5) * CELL, y: (p.y + 0.5) * CELL, r: 400 });
   });
@@ -565,17 +569,24 @@ function findPath(map, sx, sy, tx, ty, opts) {
 
 /* --- 見通し --- */
 // 地面(丘)にさえぎられたら見えない。森や町は、300mより深く通り抜けると見えない
-function los(map, x1, y1, x2, y2) {
+function hSmooth(map, x, y) {
+  // 升目の中心どうしをなめらかにつないだ高さ
+  var gx = clamp(x / CELL - 0.5, 0, N - 1.001), gy = clamp(y / CELL - 0.5, 0, N - 1.001);
+  var x0 = Math.floor(gx), y0 = Math.floor(gy), fx = gx - x0, fy = gy - y0;
+  var a = map.h[y0 * N + x0], b = map.h[y0 * N + x0 + 1], c = map.h[(y0 + 1) * N + x0], d = map.h[(y0 + 1) * N + x0 + 1];
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+function los(map, x1, y1, x2, y2, eye) {
   var d = dist(x1, y1, x2, y2);
-  var h1 = hAt(map, x1, y1) + 3, h2 = hAt(map, x2, y2) + 3;
+  var h1 = hSmooth(map, x1, y1) + (eye || 6), h2 = hSmooth(map, x2, y2) + 3;
   var steps = Math.floor(d / 50), depth = 0;
   for (var i = 1; i < steps; i++) {
     var t = i / steps, along = t * d;
-    if (along < 100 || d - along < 100) continue; // 自分と相手のすぐそばは数えない
+    if (along < 120 || d - along < 100) continue; // 自分と相手のすぐそばは数えない
     var x = x1 + (x2 - x1) * t, y = y1 + (y2 - y1) * t, line = h1 + (h2 - h1) * t;
-    var g = hAt(map, x, y);
+    var g = hSmooth(map, x, y);
     if (g > line) return false;
-    if (g + TERR[terrAt(map, x, y)].block > line) { depth += d / steps; if (depth > 300) return false; }
+    if (along > 250 && g + TERR[terrAt(map, x, y)].block > line) { depth += d / steps; if (depth > 300) return false; } // 自分のそばの木は、見張りの場所を選べばよける
   }
   return true;
 }
@@ -758,11 +769,7 @@ function mergePic(dst, src) {
   });
 }
 function clonePic(p) { var d = { own: {}, enemy: {} }; mergePic(d, p); return d; }
-function canSeeFriend(w, o, f) {
-  var d = dist(o.x, o.y, f.x, f.y);
-  if (d < 400) return true;
-  return d < 2000 && los(w.map, o.x, o.y, f.x, f.y);
-}
+function canSeeFriend(w, o, f) { return canSee(w, o, f, true); }
 function updateKnowledge(w) {
   var live = w.units.filter(function (u) { return u.alive; });
   w.cmds.forEach(function (c) {
@@ -979,16 +986,38 @@ function orderDirect(w, unitId, x, y) {
 }
 
 /* --- 見える・見えない(撃ち合いに使う) --- */
-function canSee(w, o, e) {
+// 高い所から低い所は遠くまで見渡せる。見上げると見えにくい。間の山や深い森にさえぎられると見えない
+var EYE_PER_M = 60, MAX_SIGHT = 9000;
+function sightRange(w, o, tx, ty) {
+  var base = UNIT_TYPES[o.type].sight, dh = hSmooth(w.map, o.x, o.y) - hSmooth(w.map, tx, ty);
+  var r = dh > 0 ? base + dh * EYE_PER_M : base + Math.max(-0.4 * base, dh * 20);
+  return Math.min(MAX_SIGHT, r);
+}
+function canSee(w, o, e, friendly) {
   var d = dist(o.x, o.y, e.x, e.y);
   if (d <= 200) return true;
-  var range = UNIT_TYPES[o.type].sight;
+  var dh = hSmooth(w.map, o.x, o.y) - hSmooth(w.map, e.x, e.y);
   var c = TERR[terrAt(w.map, e.x, e.y)].conceal;
-  if (w.time - e.movedAt <= 1) c *= 0.5;
-  if (w.time - e.firedAt <= 5) c = 0;
-  var detect = Math.max(300, range * (1 - c));
+  if (w.time - e.movedAt <= 1) c *= 0.5;      // 動いていると見つかりやすい
+  if (w.time - e.firedAt <= 5) c = 0;          // 撃つと位置がばれる
+  if (dh > 0) c *= 1 - Math.min(0.5, dh / 120); // 上からは、森の中も少し見える
+  if (friendly) c *= 0.5;                      // 味方は見分けやすい
+  var detect = Math.max(300, sightRange(w, o, e.x, e.y) * (1 - c));
   if (d > detect) return false;
-  return los(w.map, o.x, o.y, e.x, e.y);
+  return los(w.map, o.x, o.y, e.x, e.y, EYE[o.type]);
+}
+var EYE = { inf: 4, recon: 10, hq: 10 }; // 目の高さ(偵察隊と司令部は見張りを高い所に立てる)
+// 見える範囲(開けた場所で止まっている部隊なら見える升目)
+function viewshed(w, o) {
+  var vis = new Uint8Array(N * N);
+  for (var i = 0; i < N * N; i++) {
+    var x = (i % N + 0.5) * CELL, y = (((i / N) | 0) + 0.5) * CELL, d = dist(o.x, o.y, x, y);
+    if (d <= 200) { vis[i] = 1; continue; }
+    var r = sightRange(w, o, x, y);
+    if (d > r) continue;
+    if (los(w.map, o.x, o.y, x, y, EYE[o.type])) vis[i] = 1;
+  }
+  return vis;
 }
 function computeVision(w) {
   ['blue', 'red'].forEach(function (side) {
@@ -1377,6 +1406,7 @@ function moveOwnUnits(w, c, m, subs) {
       subs.forEach(function (s) { var p = subPos(w, c, s); sx += p.x; sy += p.y; });
       sx /= subs.length; sy /= subs.length;
       var tg = landPoint(w, sx - dd.x * 1200, sy - dd.y * 1200);
+      tg = highGround(w, tg.x, tg.y, 500); // 見渡せる高い所を選ぶ
       if (dist(u.x, u.y, tg.x, tg.y) > 400) setDest(w, u, tg.x, tg.y);
     } else if (u.type === 'recon' && !(c.op && c.op.phase === 'scout') && m.type !== 'scout') {
       var px = hq.x + (T.x - hq.x) * 0.6, py = hq.y + (T.y - hq.y) * 0.6;
@@ -1593,7 +1623,7 @@ var api = {
   think: think, unitBehavior: unitBehavior, moveUnits: moveUnits, destroyUnit: destroyUnit, receiveOrder: receiveOrder, chooseAxis: chooseAxis,
   idxAt: idxAt, terrAt: terrAt, hAt: hAt, cellSpeed: cellSpeed, clockText: clockText, missionText: missionText,
   placeName: placeName, personality: personality, skillText: skillText, obeyText: obeyText, objectiveStatus: objectiveStatus, truthStatus: truthStatus,
-  Clock: Clock, dist: dist, snap: snap, makePlaces: makePlaces, HEAR: HEAR
+  Clock: Clock, dist: dist, snap: snap, makePlaces: makePlaces, HEAR: HEAR, viewshed: viewshed, sightRange: sightRange
 };
 root.__wargameRules = api;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -1668,7 +1698,7 @@ var S = {
   view: { s: 0.08, ox: 0, oy: 0 }, sel: null, // sel: {kind:'unit'|'known', id}
   form: null,  // 任務を書いている途中 {to, type, x, y, r, deadline, priority}
   pick: null,  // 'mission' | 'move' 地図をタップして場所を選ぶ
-  dirty: true, terrain: null, lastSpotSE: -999, sent: {}, evSeen: 0, fx: [], lastGun: 0, lastRumble: 0
+  dirty: true, terrain: null, lastSpotSE: -999, sent: {}, evSeen: 0, fx: [], lastGun: 0, lastRumble: 0, vs: null
 };
 var canvas = $('map'), ctx = canvas.getContext ? canvas.getContext('2d') : null;
 
@@ -1691,7 +1721,7 @@ function newGame(seed, keepSeat) {
   S.clock = new R.Clock(S.w);
   S.clock.speed = 0; S.running = false;
   S.clock.onTick = function () { collectFx(); return autoPauseCheck(); };
-  S.sel = null; S.form = null; S.pick = null; S.sent = {}; S.evSeen = 0; S.fx = [];
+  S.sel = null; S.form = null; S.pick = null; S.sent = {}; S.evSeen = 0; S.fx = []; S.vs = null;
   S.terrain = null;
   layout(); fitView();
   renderAll();
@@ -1811,6 +1841,29 @@ function buildTerrain() {
   return c;
 }
 
+/* --- 司令部から見える範囲(見えない所を暗くする) --- */
+function viewOn() { return SE.get('wg-viewshed', '1') !== '0'; }
+function viewshedImage() {
+  var w = S.w, me = R.playerCmd(w); if (!me) return null;
+  var hq = R.getUnit(w, me.hq); if (!hq || !hq.alive) return null;
+  var key = me.id + ':' + Math.round(hq.x / 50) + ':' + Math.round(hq.y / 50);
+  S.vsStale = false;
+  if (S.vs && S.vs.key === key) return S.vs.img;
+  var t = nowMs();
+  if (S.vs && t - S.vs.at < 700 && S.vs.me === me.id) { S.vsStale = true; return S.vs.img; } // 動いている間は間引く(あとで描き直す)
+  var v = R.viewshed(w, hq), n = R.N, img = null;
+  var c = document.createElement('canvas'); c.width = n; c.height = n;
+  var g = c.getContext ? c.getContext('2d') : null;
+  if (g && g.createImageData) {
+    var d = g.createImageData(n, n);
+    for (var i = 0; i < n * n; i++) { var o = i * 4; d.data[o] = 18; d.data[o + 1] = 26; d.data[o + 2] = 28; d.data[o + 3] = v[i] ? 0 : (dark ? 120 : 92); }
+    g.putImageData(d, 0, 0); img = c;
+  }
+  var cnt = 0; for (var j = 0; j < v.length; j++) cnt += v[j];
+  S.vs = { key: key, img: img, at: t, me: me.id, data: v, share: cnt / v.length };
+  return img;
+}
+
 /* --- 描く --- */
 function lerpPos(u) {
   var f = S.clock ? S.clock.frac() : 1; if (!S.running) f = 1;
@@ -1880,6 +1933,8 @@ function ownEntries(w, me) {
 }
 function draw() {
   S.dirty = false;
+  var vimg = viewOn() ? viewshedImage() : null;
+  if (S.vsStale) S.dirty = true; // 間引いた分は、次の描画で計算し直す
   if (!ctx) return;
   var w = S.w, g = ctx, dpr = S.dpr;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1888,6 +1943,7 @@ function draw() {
   var o = toScreen(0, 0), sz = R.MAP * S.view.s;
   g.imageSmoothingEnabled = S.view.s < 0.08;
   if (S.terrain) g.drawImage(S.terrain, o.x, o.y, sz, sz);
+  if (vimg) { { g.save(); g.imageSmoothingEnabled = true; g.drawImage(vimg, o.x, o.y, sz, sz); g.restore(); } }
   g.strokeStyle = PAL.grid; g.lineWidth = 1; g.beginPath();
   for (var k = 0; k <= 10; k++) { var a = toScreen(k * 1000, 0), b = toScreen(k * 1000, R.MAP); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); a = toScreen(0, k * 1000); b = toScreen(R.MAP, k * 1000); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
   g.stroke();
@@ -1974,7 +2030,13 @@ function renderOrders() {
   box.className = me.side === 'red' ? 'red' : '';
   box.innerHTML = '<div class="who">' + esc(me.title) + '</div>' +
     '<div class="mis">' + (from ? esc(from) + 'からの任務:' : '') + esc(R.missionText(w, me.mission)) + '</div>' +
-    '<div class="obj">' + esc(st.town) + ':' + holder + '(あなたが知る限り)</div>';
+    '<div class="obj">' + esc(st.town) + ':' + holder + '(あなたが知る限り)</div>' + hqLine(w, me);
+}
+function hqLine(w, me) {
+  var hq = R.getUnit(w, me.hq); if (!hq || !hq.alive) return '';
+  if (!S.vs || S.vs.me !== me.id) viewshedImage();
+  var share = S.vs && S.vs.me === me.id ? Math.round(S.vs.share * 100) : null;
+  return '<div class="obj">司令部:' + esc(R.placeName(w, hq.x, hq.y)) + '・高さ' + Math.round(R.hAt(w.map, hq.x, hq.y)) + 'm' + (share != null ? '・地図の' + share + '%が見渡せる' : '') + '</div>';
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function attrsHtml(c) { return '<div class="attrs"><span>' + R.personality(c) + '</span><span>' + R.skillText(c) + '</span><span>' + R.obeyText(c) + '</span></div>'; }
@@ -1997,7 +2059,7 @@ function renderSheet() {
     var now = k.t >= w.time;
     html += '<h2>敵の' + R.UNIT_TYPES[k.type].name + '<small>' + (now ? '今見えている' : agoText(w.time - k.t) + 'の情報') + '</small></h2>' +
       '<div class="row"><span class="k">数(見積もり。間違っていることもある)</span>約' + k.est + '人</div>' +
-      '<div class="row"><span class="k">場所</span>' + esc(R.placeName(w, k.x, k.y)) + '・' + R.TERR[R.terrAt(w.map, k.x, k.y)].name + '</div>' +
+      '<div class="row"><span class="k">場所</span>' + esc(R.placeName(w, k.x, k.y)) + '・' + R.TERR[R.terrAt(w.map, k.x, k.y)].name + '・高さ' + Math.round(R.hAt(w.map, k.x, k.y)) + 'm</div>' +
       (now ? '' : '<p class="note">今もそこにいるとは限りません。</p>');
     if (S.form && S.form.type === 'attack') html += '<div class="acts"><button class="btn main" data-act="pickEnemy">この敵を目標にする</button></div>';
     el.innerHTML = html; el.classList.add('open'); return;
@@ -2009,7 +2071,7 @@ function renderSheet() {
   var stat = function (lab, v, f) { return '<div class="stat">' + lab + '<b>' + v + '</b>' + (f != null ? '<div class="meter"><i style="width:' + Math.round(f * 100) + '%"></i></div>' : '') + '</div>'; };
   html += '<h2>' + esc(e.name) + '<small>' + R.UNIT_TYPES[e.type].name + '・' + (live ? '今見えている' : agoText(w.time - e.t) + 'の報告') + '</small></h2>';
   html += '<div class="stats">' + stat('人数', e.str + '人', e.str / e.max) + stat('士気', e.mor, e.mor / 100) + stat('状態', e.broken ? '崩れた' : '保っている') + '</div>';
-  html += '<div class="row"><span class="k">いた場所</span>' + esc(R.placeName(w, e.x, e.y)) + '・' + R.TERR[R.terrAt(w.map, e.x, e.y)].name + '</div>';
+  html += '<div class="row"><span class="k">いた場所</span>' + esc(R.placeName(w, e.x, e.y)) + '・' + R.TERR[R.terrAt(w.map, e.x, e.y)].name + '・高さ' + Math.round(R.hAt(w.map, e.x, e.y)) + 'm</div>';
   if (e.fighting) html += '<div class="plan" style="border-color:var(--red)">交戦中' + (live ? '(今見えている)' : '(報告の時点)') + '</div>';
   if (e.note) html += '<div class="row"><span class="k">ようす</span>' + esc(e.note) + '</div>';
   if (lead) {
@@ -2365,6 +2427,8 @@ function bind() {
   $('zin').onclick = function () { zoomAt(1.3, S.cw / 2, S.ch / 2); };
   $('zout').onclick = function () { zoomAt(1 / 1.3, S.cw / 2, S.ch / 2); };
   $('zfit').onclick = fitView;
+  $('viewBtn').setAttribute('aria-pressed', String(viewOn()));
+  $('viewBtn').onclick = function () { SE.put('wg-viewshed', viewOn() ? '0' : '1'); $('viewBtn').setAttribute('aria-pressed', String(viewOn())); SE.play('tab'); S.dirty = true; };
   $('playBtn').onclick = function () { setRunning(!S.running); SE.play('tap'); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-speed]'), function (b) { b.onclick = function () { setSpeed(+b.dataset.speed); }; });
   $('sheet').addEventListener('click', onSheetClick);
@@ -2405,7 +2469,7 @@ window.__wargame = {
   newGame: newGame, setRunning: setRunning, setSpeed: setSpeed, chooseSeat: chooseSeat,
   select: select, startForm: startForm, sendForm: sendForm, tapWorld: function (x, y) { var p = toScreen(x, y); tapMap(p.x, p.y); },
   setPlace: function (id) { S.form.place = id; syncFormPoint(); renderSheet(); },
-  renderAll: renderAll, draw: function () { draw(); }, collectFx: collectFx, frame: function (ms) { var n = S.clock.advance(ms); if (n || S.pauseReason) { drainEvents(); renderAll(); } return n; }
+  renderAll: renderAll, draw: function () { draw(); }, collectFx: collectFx, viewshedImage: viewshedImage, frame: function (ms) { var n = S.clock.advance(ms); if (n || S.pauseReason) { drainEvents(); renderAll(); } return n; }
 };
 })();
 </script>
