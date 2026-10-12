@@ -1,0 +1,1735 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#253236">
+<title>ウォーゲーム(仮)</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root {
+  --paper: #e6e9df;
+  --paper-2: #d7dccd;
+  --ink: #1e2b2f;
+  --pencil: #687366;
+  --chrome: #253236;
+  --chrome-ink: #e6e9df;
+  --blue: #2c5aa0;
+  --red: #b03a2e;
+  --grease: #d9a520;
+  --line: rgba(30, 43, 47, .22);
+  --shadow: 0 2px 0 rgba(30, 43, 47, .18);
+  --font: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #232c2e;
+    --paper-2: #2c3739;
+    --ink: #dde3d8;
+    --pencil: #9aa597;
+    --chrome: #161d1f;
+    --chrome-ink: #dde3d8;
+    --blue: #6f9be0;
+    --red: #e07a6c;
+    --line: rgba(221, 227, 216, .18);
+    --shadow: 0 2px 0 rgba(0, 0, 0, .35);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font); color: var(--ink); background: var(--chrome);
+  font-size: 15px; line-height: 1.55; overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--grease); outline-offset: 2px; }
+
+/* 上の帯 */
+#bar {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 20;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
+  background: var(--chrome); color: var(--chrome-ink);
+}
+#title { font-weight: 700; letter-spacing: .04em; font-size: 15px; }
+#ver { font-size: 11px; opacity: .6; margin-left: 4px; font-weight: 400; }
+#clock { font-size: 17px; font-weight: 700; min-width: 7.5em; }
+.grp { display: flex; gap: 2px; background: rgba(255,255,255,.07); border-radius: 6px; padding: 2px; }
+.grp button {
+  border: 0; background: transparent; color: var(--chrome-ink);
+  min-width: 40px; height: 32px; border-radius: 4px; padding: 0 8px; font-size: 14px;
+}
+.grp button[aria-pressed="true"] { background: var(--chrome-ink); color: var(--chrome); font-weight: 700; }
+#seatBtn, .barBtn {
+  border: 1px solid rgba(230,233,223,.3); background: transparent; color: var(--chrome-ink);
+  height: 34px; border-radius: 6px; padding: 0 10px; font-size: 14px;
+}
+.spacer { flex: 1; }
+
+/* 地図 */
+#map { position: fixed; left: 0; right: 0; bottom: 0; touch-action: none; display: block; background: var(--paper); }
+#zoom { position: fixed; right: 12px; z-index: 10; display: flex; flex-direction: column; gap: 6px; }
+#zoom button {
+  width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink); font-size: 20px; box-shadow: var(--shadow);
+}
+
+/* 自分の任務(左上の札) */
+#orders {
+  position: fixed; left: 12px; z-index: 10; max-width: min(380px, calc(100vw - 80px));
+  background: var(--paper); border: 1px solid var(--line); border-left: 5px solid var(--blue);
+  border-radius: 4px; padding: 8px 12px; box-shadow: var(--shadow); font-size: 13px;
+}
+#orders.red { border-left-color: var(--red); }
+#orders .who { font-weight: 700; font-size: 14px; }
+#orders .mis { margin-top: 2px; }
+#orders .obj { margin-top: 4px; color: var(--pencil); }
+#orders button.link { border: 0; background: none; padding: 0; text-decoration: underline; color: var(--pencil); font-size: 12px; }
+
+/* 下の札(選んだ部隊) */
+#sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  background: var(--paper); border-top: 1px solid var(--line);
+  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  max-height: 58vh; overflow-y: auto;
+  transform: translateY(105%); transition: transform .18s ease-out;
+}
+#sheet.open { transform: none; }
+@media (min-width: 760px) {
+  #sheet { left: auto; right: 12px; bottom: 12px; width: 380px; border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); max-height: 70vh; }
+}
+#sheet h2 { margin: 0; font-size: 18px; display: flex; align-items: baseline; gap: 8px; }
+#sheet h2 small { font-size: 12px; font-weight: 400; color: var(--pencil); }
+#sheet .close { float: right; border: 0; background: none; font-size: 22px; line-height: 1; padding: 0 4px; color: var(--pencil); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; margin: 10px 0 6px; }
+.stat { font-size: 12px; color: var(--pencil); }
+.stat b { display: block; font-size: 17px; color: var(--ink); }
+.meter { height: 4px; background: var(--paper-2); border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ink); }
+.row { margin: 6px 0; font-size: 14px; }
+.row .k { color: var(--pencil); font-size: 12px; display: block; }
+.note { font-size: 13px; color: var(--pencil); margin: 8px 0; }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.btn {
+  border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
+  min-height: 40px; border-radius: 6px; padding: 0 14px; font-size: 14px;
+}
+.btn.main { background: var(--ink); color: var(--paper); font-weight: 700; }
+.btn:disabled { opacity: .4; cursor: default; }
+
+/* 任務を書く */
+.form { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.field { margin: 8px 0; }
+.field > span { display: block; font-size: 12px; color: var(--pencil); margin-bottom: 4px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button {
+  border: 1px solid var(--line); background: var(--paper); border-radius: 4px; min-height: 36px; padding: 0 10px; font-size: 13px;
+}
+.seg button[aria-pressed="true"] { border-color: var(--grease); background: var(--grease); color: #1e2b2f; font-weight: 700; }
+.pickHint { font-size: 13px; padding: 8px 10px; border: 1px dashed var(--grease); border-radius: 4px; }
+
+/* 記録 */
+#logBox {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 25; width: min(420px, 100vw);
+  background: var(--paper); border-left: 1px solid var(--line); box-shadow: -2px 0 0 rgba(0,0,0,.08);
+  display: flex; flex-direction: column; transform: translateX(105%); transition: transform .18s ease-out;
+}
+#logBox.open { transform: none; }
+#logBox header { display: flex; align-items: center; padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px; border-bottom: 1px solid var(--line); }
+#logBox header h2 { margin: 0; font-size: 16px; flex: 1; }
+#logList { list-style: none; margin: 0; padding: 6px 0 20px; overflow-y: auto; flex: 1; }
+#logList li { padding: 6px 14px; font-size: 13px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 3.3em 1fr; gap: 8px; }
+#logList time { color: var(--pencil); font-size: 12px; }
+#logList li.order { background: rgba(217,165,32,.18); }
+#logList li.lost span { color: var(--red); }
+#logList li.win span { font-weight: 700; }
+#logList li.spot span::before { content: "◆ "; color: var(--grease); }
+
+/* 札(ダイアログ) */
+.dlg { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; background: rgba(20,28,30,.5); padding: 16px; }
+.dlg.open { display: flex; }
+.dlg .card {
+  background: var(--paper); color: var(--ink); border-radius: 6px; width: min(460px, 100%); max-height: 86vh; overflow-y: auto;
+  padding: 18px 20px; box-shadow: 0 4px 0 rgba(0,0,0,.25);
+}
+.dlg h2 { margin: 0 0 8px; font-size: 18px; }
+.dlg p { margin: 6px 0; }
+.seatList { list-style: none; padding: 0; margin: 8px 0; }
+.seatList li button {
+  width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none;
+  padding: 9px 6px; display: flex; gap: 8px; align-items: baseline;
+}
+.seatList li button[aria-current="true"] { background: rgba(217,165,32,.25); font-weight: 700; }
+.seatList li button:disabled { opacity: .4; text-decoration: line-through; }
+.seatList .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.seatList small { color: var(--pencil); margin-left: auto; font-weight: 400; }
+.setRow { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.setRow label { flex: 1; }
+
+/* 始めの札 */
+#intro .card { border-top: 6px solid var(--blue); }
+#intro .lead { font-size: 22px; font-weight: 700; line-height: 1.35; margin: 2px 0 10px; }
+#intro ol { padding-left: 1.3em; margin: 8px 0 14px; }
+
+/* 知らせ */
+#toast {
+  position: fixed; left: 50%; z-index: 30; transform: translateX(-50%);
+  background: var(--ink); color: var(--paper); border-radius: 6px; padding: 8px 14px; font-size: 14px;
+  max-width: min(520px, calc(100vw - 24px)); box-shadow: var(--shadow); display: none;
+}
+#toast.show { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  #sheet, #logBox { transition: none; }
+}
+@media (max-width: 560px) {
+  #title { font-size: 14px; }
+  #clock { font-size: 15px; min-width: 0; }
+  .grp button { min-width: 36px; padding: 0 6px; }
+}
+</style>
+</head>
+<body>
+<header id="bar">
+  <div id="title">ウォーゲーム(仮)<span id="ver"></span></div>
+  <div id="clock">1日目 06:00</div>
+  <div class="grp" role="group" aria-label="時間の速さ">
+    <button id="playBtn" aria-label="進める">▶</button>
+    <button data-speed="1" aria-pressed="false">×1</button>
+    <button data-speed="10" aria-pressed="false">×10</button>
+    <button data-speed="60" aria-pressed="true">×60</button>
+  </div>
+  <div class="spacer"></div>
+  <button id="seatBtn">席:-</button>
+  <button id="logBtn" class="barBtn">記録</button>
+  <button id="setBtn" class="barBtn" aria-label="設定">設定</button>
+</header>
+
+<canvas id="map" aria-label="戦場の地図"></canvas>
+
+<div id="orders"></div>
+<div id="zoom">
+  <button id="zin" aria-label="近づける">＋</button>
+  <button id="zout" aria-label="遠ざける">−</button>
+  <button id="zfit" aria-label="全体を見る">□</button>
+</div>
+
+<section id="sheet" aria-live="polite"></section>
+
+<aside id="logBox" aria-label="記録">
+  <header><h2>記録</h2><button class="btn" id="logClose">閉じる</button></header>
+  <ul id="logList"></ul>
+</aside>
+
+<div id="toast" role="status"></div>
+
+<div class="dlg" id="seatDlg" role="dialog" aria-modal="true" aria-labelledby="seatTtl">
+  <div class="card">
+    <h2 id="seatTtl">どの席に座りますか</h2>
+    <p class="note">選んだ指揮官をあなたが動かします。ほかの指揮官は、上官も部下もAIが動かします。</p>
+    <ul class="seatList" id="seatList"></ul>
+    <div class="acts"><button class="btn" id="seatClose">閉じる</button></div>
+  </div>
+</div>
+
+<div class="dlg" id="setDlg" role="dialog" aria-modal="true" aria-labelledby="setTtl">
+  <div class="card">
+    <h2 id="setTtl">設定</h2>
+    <div class="setRow"><label for="seOn">効果音</label><input type="checkbox" id="seOn"></div>
+    <div class="setRow"><label for="seVol">音量</label><input type="range" id="seVol" min="0" max="1" step="0.05"></div>
+    <div class="setRow"><label>新しい戦場(地形が変わります)</label><button class="btn" id="newMap">新しく始める</button></div>
+    <div class="setRow"><label>同じ戦場で最初から</label><button class="btn" id="restart">やり直す</button></div>
+    <p class="note" id="verNote"></p>
+    <div class="acts"><button class="btn main" id="setClose">閉じる</button></div>
+  </div>
+</div>
+
+<div class="dlg open" id="intro" role="dialog" aria-modal="true" aria-labelledby="introTtl">
+  <div class="card">
+    <p class="note" id="introWho">青軍 第1師団長</p>
+    <p class="lead" id="introTtl">政府の命令:北原の町を取れ</p>
+    <ol>
+      <li>部下の連隊長を選んで、任務を出します。任務は伝令が走って届けるので、届くまで時間がかかります。</li>
+      <li>直接動かせるのは、司令部と偵察隊だけです。</li>
+      <li>敵は、味方から見えているときだけ地図に出ます。森や町にいる敵は、近づかないと見えません。</li>
+    </ol>
+    <div class="acts"><button class="btn main" id="introGo">始める(止めた状態で)</button><button class="btn" id="introSeat">席を変える</button></div>
+  </div>
+</div>
+
+<script>
+/* ===== 決まりの計算(画面に依存しない) ===== */
+(function (root) {
+'use strict';
+
+var VERSION = '2026-10-12 r1';
+var MAP = 10000;          // 地図の一辺(m)
+var CELL = 100;           // 計算用の見えない升目(m)
+var N = MAP / CELL;       // 一辺の升目の数
+
+var PLAIN = 0, FOREST = 1, TOWN = 2, WATER = 3;
+var TERR = [
+  { name: '平地', speed: 1.0,  conceal: 0.0, defense: 1.0, block: 0 },
+  { name: '森',   speed: 0.45, conceal: 0.7, defense: 0.6, block: 15 },
+  { name: '町',   speed: 0.8,  conceal: 0.5, defense: 0.5, block: 10 },
+  { name: '川',   speed: 0,    conceal: 0.0, defense: 1.0, block: 0 }
+];
+var ROAD_SPEED = 1.6, FORD_SPEED = 0.3;
+
+var UNIT_TYPES = {
+  inf:     { name: '歩兵大隊', speed: 55,  sight: 3000, range: 800, fire: 1.0 },
+  recon:   { name: '偵察隊',   speed: 220, sight: 5000, range: 500, fire: 0.5 },
+  hq:      { name: '司令部',   speed: 80,  sight: 2500, range: 300, fire: 0.3 }
+};
+var COURIER_SPEED = 400;  // 伝令(m/分)
+var COURIER_CATCH = 250;  // 敵にこれより近づくと捕まる
+var START_HOUR = 6;
+
+/* --- 乱数(同じ種なら同じ結果) --- */
+function rng(seed) {
+  var a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function makeNoise(r, step) {
+  var g = Math.ceil(N / step) + 3, v = [];
+  for (var i = 0; i < g * g; i++) v.push(r());
+  return function (x, y) {
+    var gx = x / step, gy = y / step, x0 = Math.floor(gx), y0 = Math.floor(gy);
+    var fx = gx - x0, fy = gy - y0, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    var a = v[y0 * g + x0], b = v[y0 * g + x0 + 1], c = v[(y0 + 1) * g + x0], d = v[(y0 + 1) * g + x0 + 1];
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  };
+}
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function dist(ax, ay, bx, by) { var dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
+
+/* --- 地図 --- */
+function emptyMap() {
+  return {
+    n: N, cell: CELL, size: MAP,
+    terr: new Uint8Array(N * N), h: new Float32Array(N * N),
+    road: new Uint8Array(N * N), ford: new Uint8Array(N * N),
+    towns: [], roadLines: [], riverPts: []
+  };
+}
+function cellOf(v) { return clamp(Math.floor(v / CELL), 0, N - 1); }
+function idxAt(x, y) { return cellOf(y) * N + cellOf(x); }
+function terrAt(map, x, y) { return map.terr[idxAt(x, y)]; }
+function hAt(map, x, y) { return map.h[idxAt(x, y)]; }
+function cellSpeed(map, i) {
+  if (map.road[i]) return ROAD_SPEED;
+  if (map.terr[i] === WATER) return map.ford[i] ? FORD_SPEED : 0;
+  return TERR[map.terr[i]].speed;
+}
+function passable(map, i) { return cellSpeed(map, i) > 0; }
+
+function drawLine(map, ax, ay, bx, by, fn) {
+  // 升目の上を、すき間なく線でなぞる
+  var x = ax, y = ay, dx = Math.abs(bx - ax), dy = Math.abs(by - ay);
+  var sx = ax < bx ? 1 : -1, sy = ay < by ? 1 : -1, err = dx - dy;
+  for (;;) {
+    fn(x, y);
+    if (x === bx && y === by) break;
+    var e2 = 2 * err;
+    if (e2 > -dy && e2 < dx) { // 斜めに進むときは、角を埋める
+      if (Math.abs(e2 + dy) < Math.abs(dx - e2)) { err -= dy; x += sx; } else { err += dx; y += sy; }
+      fn(x, y);
+      continue;
+    }
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx) { err += dx; y += sy; }
+  }
+}
+
+function genMap(seed) {
+  var r = rng(seed || 1), map = emptyMap();
+  var n1 = makeNoise(r, 26), n2 = makeNoise(r, 11), n3 = makeNoise(r, 4), nf = makeNoise(r, 8), nf2 = makeNoise(r, 3);
+  var phase = r() * 6.28, i, x, y;
+  // 高さ
+  for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+    map.h[y * N + x] = 40 + 70 * n1(x, y) + 28 * n2(x, y) + 7 * n3(x, y);
+  }
+  // 川(西から東へ蛇行)
+  var riverY = [];
+  for (x = 0; x < N; x++) riverY.push(Math.round(50 + 7 * Math.sin(x / 13 + phase) + 3 * Math.sin(x / 5 + phase * 2)));
+  for (x = 0; x < N; x++) map.riverPts.push({ x: (x + 0.5) * CELL, y: (riverY[x] + 0.5) * CELL });
+  for (x = 0; x < N; x++) {
+    var y0 = riverY[x], y1 = x > 0 ? riverY[x - 1] : y0;
+    for (y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) map.terr[y * N + x] = WATER;
+  }
+  // 川沿いを低く(谷)
+  for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+    var d = Math.abs(y - riverY[x]);
+    map.h[y * N + x] -= 30 * Math.exp(-d / 5);
+    if (map.terr[y * N + x] === WATER) map.h[y * N + x] = Math.min(map.h[y * N + x], 30);
+  }
+  // 町
+  var towns = [
+    { name: '北原', cx: 50, cy: 28, r: 3 },
+    { name: '南野', cx: 46, cy: 84, r: 3 },
+    { name: '西谷', cx: 16, cy: 38, r: 2 },
+    { name: '東坂', cx: 82, cy: 66, r: 2 }
+  ];
+  towns.forEach(function (t) {
+    for (y = t.cy - t.r; y <= t.cy + t.r; y++) for (x = t.cx - t.r; x <= t.cx + t.r; x++) {
+      if (x < 0 || y < 0 || x >= N || y >= N) continue;
+      if ((x - t.cx) * (x - t.cx) + (y - t.cy) * (y - t.cy) <= t.r * t.r + 1 && map.terr[y * N + x] !== WATER) map.terr[y * N + x] = TOWN;
+    }
+    map.towns.push({ name: t.name, x: (t.cx + 0.5) * CELL, y: (t.cy + 0.5) * CELL, r: (t.r + 0.5) * CELL });
+  });
+  // 森
+  for (i = 0; i < N * N; i++) {
+    if (map.terr[i] !== PLAIN) continue;
+    x = i % N; y = (i / N) | 0;
+    var f = nf(x, y) * 0.8 + nf2(x, y) * 0.2 + (map.h[i] > 105 ? 0.08 : 0);
+    if (f > 0.6) map.terr[i] = FOREST;
+  }
+  // 道(川を渡るところは橋)
+  function road(a, b) {
+    var A = towns[a], B = towns[b];
+    map.roadLines.push([(A.cx + 0.5) * CELL, (A.cy + 0.5) * CELL, (B.cx + 0.5) * CELL, (B.cy + 0.5) * CELL]);
+    drawLine(map, A.cx, A.cy, B.cx, B.cy, function (x, y) { map.road[y * N + x] = map.terr[y * N + x] === WATER ? 2 : 1; });
+  }
+  road(1, 0); road(1, 3); road(3, 0); road(2, 0); road(2, 1);
+  // 浅瀬(道のない渡れる場所。別働隊の抜け道)
+  var fx = 30;
+  for (y = 0; y < N; y++) if (map.terr[y * N + fx] === WATER) { map.ford[y * N + fx] = 1; }
+  return map;
+}
+
+/* --- 道のり探し(見えない升目の上で最も速い道) --- */
+function Heap() { this.a = []; }
+Heap.prototype.push = function (k, v) {
+  var a = this.a; a.push([k, v]); var i = a.length - 1;
+  while (i > 0) { var p = (i - 1) >> 1; if (a[p][0] <= a[i][0]) break; var t = a[p]; a[p] = a[i]; a[i] = t; i = p; }
+};
+Heap.prototype.pop = function () {
+  var a = this.a, top = a[0], last = a.pop();
+  if (a.length) {
+    a[0] = last; var i = 0;
+    for (;;) {
+      var l = 2 * i + 1, r = l + 1, m = i;
+      if (l < a.length && a[l][0] < a[m][0]) m = l;
+      if (r < a.length && a[r][0] < a[m][0]) m = r;
+      if (m === i) break; var t = a[m]; a[m] = a[i]; a[i] = t; i = m;
+    }
+  }
+  return top;
+};
+function nearestPassable(map, i) {
+  if (passable(map, i)) return i;
+  var cx = i % N, cy = (i / N) | 0;
+  for (var rad = 1; rad < 20; rad++) {
+    var best = -1, bd = 1e9;
+    for (var y = cy - rad; y <= cy + rad; y++) for (var x = cx - rad; x <= cx + rad; x++) {
+      if (x < 0 || y < 0 || x >= N || y >= N) continue;
+      var j = y * N + x; if (!passable(map, j)) continue;
+      var d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (best >= 0) return best;
+  }
+  return i;
+}
+var DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];
+function findPath(map, sx, sy, tx, ty) {
+  var s = idxAt(sx, sy), t = nearestPassable(map, idxAt(tx, ty));
+  if (!passable(map, s)) s = nearestPassable(map, s);
+  var tcx = t % N, tcy = (t / N) | 0;
+  var g = new Float32Array(N * N).fill(Infinity), from = new Int32Array(N * N).fill(-1), done = new Uint8Array(N * N);
+  var h = new Heap(); g[s] = 0; h.push(0, s);
+  while (h.a.length) {
+    var cur = h.pop()[1];
+    if (done[cur]) continue; done[cur] = 1;
+    if (cur === t) break;
+    var cx = cur % N, cy = (cur / N) | 0, cs = cellSpeed(map, cur);
+    for (var k = 0; k < 8; k++) {
+      var nx = cx + DIRS[k][0], ny = cy + DIRS[k][1];
+      if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+      var j = ny * N + nx, ns = cellSpeed(map, j);
+      if (ns <= 0 || done[j]) continue;
+      if (k >= 4) { // 斜めは、両側が通れるときだけ(川の角をすり抜けない)
+        if (!passable(map, cy * N + nx) || !passable(map, ny * N + cx)) continue;
+      }
+      var cost = g[cur] + DIRS[k][2] * 2 / (cs + ns);
+      if (cost < g[j]) {
+        g[j] = cost; from[j] = cur;
+        h.push(cost + Math.sqrt((nx - tcx) * (nx - tcx) + (ny - tcy) * (ny - tcy)) / ROAD_SPEED, j);
+      }
+    }
+  }
+  if (from[t] < 0 && t !== s) return null;
+  var cells = [];
+  for (var c = t; c !== s && c >= 0; c = from[c]) cells.push(c);
+  cells.reverse();
+  var pts = cells.map(function (c) { return { x: (c % N + 0.5) * CELL, y: (((c / N) | 0) + 0.5) * CELL }; });
+  if (pts.length && t === idxAt(tx, ty)) pts[pts.length - 1] = { x: tx, y: ty };
+  return pts;
+}
+
+/* --- 見通し --- */
+// 地面(丘)にさえぎられたら見えない。森や町は、300mより深く通り抜けると見えない
+function los(map, x1, y1, x2, y2) {
+  var d = dist(x1, y1, x2, y2);
+  var h1 = hAt(map, x1, y1) + 3, h2 = hAt(map, x2, y2) + 3;
+  var steps = Math.floor(d / 50), depth = 0;
+  for (var i = 1; i < steps; i++) {
+    var t = i / steps, along = t * d;
+    if (along < 100 || d - along < 100) continue; // 自分と相手のすぐそばは数えない
+    var x = x1 + (x2 - x1) * t, y = y1 + (y2 - y1) * t, line = h1 + (h2 - h1) * t;
+    var g = hAt(map, x, y);
+    if (g > line) return false;
+    if (g + TERR[terrAt(map, x, y)].block > line) { depth += d / steps; if (depth > 300) return false; }
+  }
+  return true;
+}
+
+/* --- 世界の作成 --- */
+function createWorld(opts) {
+  opts = opts || {};
+  var seed = opts.seed || 7;
+  var w = {
+    version: VERSION, seed: seed, map: opts.map || genMap(seed), time: 0,
+    units: [], cmds: [], couriers: [], log: [], nextId: 1,
+    known: { blue: {}, red: {} }, vis: { blue: {}, red: {} },
+    player: null, events: [], flags: {}
+  };
+  if (opts.empty) return w;
+  setupScenario(w);
+  return w;
+}
+function addUnit(w, o) {
+  var t = UNIT_TYPES[o.type];
+  var u = {
+    id: 'u' + (w.nextId++), side: o.side, name: o.name, type: o.type, cmd: o.cmd || null,
+    str: o.str || 800, max: o.str || 800, fat: o.fat || 0, mor: o.mor == null ? 80 : o.mor,
+    x: o.x, y: o.y, px: o.x, py: o.y, path: null, pathI: 0, dest: null,
+    firedAt: -999, hitAt: -999, movedAt: -999, alive: true, posture: 'hold', broken: false, resting: false,
+    note: ''
+  };
+  if (!t) throw new Error('部隊の種類が不明: ' + o.type);
+  w.units.push(u);
+  return u;
+}
+function addCmd(w, o) {
+  var c = {
+    id: 'c' + (w.nextId++), side: o.side, name: o.name, title: o.title, bold: o.bold == null ? 0.5 : o.bold,
+    parent: o.parent || null, subs: [], units: [], hq: null, mission: o.mission || null,
+    planned: '', ctrl: 'ai', alive: true, lastHQMove: -999, inbox: []
+  };
+  w.cmds.push(c);
+  if (c.parent) getCmd(w, c.parent).subs.push(c.id);
+  return c;
+}
+function personality(c) { return c.bold >= 0.65 ? '大胆' : c.bold <= 0.35 ? '慎重' : 'ふつう'; }
+function getCmd(w, id) { for (var i = 0; i < w.cmds.length; i++) if (w.cmds[i].id === id) return w.cmds[i]; return null; }
+function getUnit(w, id) { for (var i = 0; i < w.units.length; i++) if (w.units[i].id === id) return w.units[i]; return null; }
+function cmdOfUnit(w, u) { return u.cmd ? getCmd(w, u.cmd) : null; }
+
+function setupScenario(w) {
+  var town = w.map.towns[0]; // 北原
+  // 青軍(南から北原を取りに行く)
+  var div = addCmd(w, { side: 'blue', name: '青軍 第1師団', title: '師団長', bold: 0.55,
+    mission: { type: 'advance', x: town.x, y: town.y, r: 600, deadline: 12 * 60, priority: 'speed', from: 'gov', issuedAt: 0, text: '北原の町を取れ' } });
+  var r1 = addCmd(w, { side: 'blue', name: '第1連隊', title: '第1連隊長', bold: 0.8, parent: div.id });
+  var r2 = addCmd(w, { side: 'blue', name: '第2連隊', title: '第2連隊長', bold: 0.2, parent: div.id });
+  var b = [];
+  [['第1大隊', r1, 0.7, 4300, 8600], ['第2大隊', r1, 0.6, 4800, 8800], ['第3大隊', r2, 0.3, 5600, 8700], ['第4大隊', r2, 0.25, 6100, 8900]].forEach(function (a) {
+    var c = addCmd(w, { side: 'blue', name: a[0], title: a[0] + '長', bold: a[2], parent: a[1].id });
+    var u = addUnit(w, { side: 'blue', name: a[0], type: 'inf', cmd: c.id, x: a[3], y: a[4], str: 800 });
+    c.units.push(u.id); c.hq = u.id; b.push(c);
+  });
+  var dhq = addUnit(w, { side: 'blue', name: '第1師団司令部', type: 'hq', cmd: div.id, x: 5000, y: 9300, str: 200 });
+  var rec = addUnit(w, { side: 'blue', name: '師団偵察隊', type: 'recon', cmd: div.id, x: 5200, y: 9100, str: 150 });
+  div.units.push(dhq.id, rec.id); div.hq = dhq.id;
+  var r1hq = addUnit(w, { side: 'blue', name: '第1連隊司令部', type: 'hq', cmd: r1.id, x: 4500, y: 9100, str: 150 });
+  var r2hq = addUnit(w, { side: 'blue', name: '第2連隊司令部', type: 'hq', cmd: r2.id, x: 5800, y: 9200, str: 150 });
+  r1.units.push(r1hq.id); r1.hq = r1hq.id; r2.units.push(r2hq.id); r2.hq = r2hq.id;
+  b.forEach(function (c) { c.mission = { type: 'hold', x: getUnit(w, c.hq).x, y: getUnit(w, c.hq).y, r: 300, deadline: null, priority: 'safe', from: c.parent, issuedAt: 0, text: '集結地で待て' }; });
+  [r1, r2].forEach(function (c) { var u = getUnit(w, c.hq); c.mission = { type: 'hold', x: u.x, y: u.y, r: 500, deadline: null, priority: 'safe', from: div.id, issuedAt: 0, text: '集結地で待て' }; });
+
+  // 赤軍(北原を守る)
+  var bri = addCmd(w, { side: 'red', name: '赤軍 第7旅団', title: '旅団長', bold: 0.4,
+    mission: { type: 'hold', x: town.x, y: town.y + 800, r: 1500, deadline: null, priority: 'safe', from: 'gov', issuedAt: 0, text: '北原を守り抜け' } });
+  var ra = addCmd(w, { side: 'red', name: '第21連隊', title: '第21連隊長', bold: 0.5, parent: bri.id });
+  var rb = addCmd(w, { side: 'red', name: '第22連隊', title: '第22連隊長', bold: 0.3, parent: bri.id });
+  [['第1大隊(赤)', ra, 0.5, 4400, 2900], ['第2大隊(赤)', ra, 0.6, 5200, 2600], ['第3大隊(赤)', rb, 0.3, 5800, 3200]].forEach(function (a) {
+    var c = addCmd(w, { side: 'red', name: a[0], title: a[0].replace('(赤)', '') + '長', bold: a[2], parent: a[1].id });
+    var u = addUnit(w, { side: 'red', name: a[0], type: 'inf', cmd: c.id, x: a[3], y: a[4], str: 800 });
+    c.units.push(u.id); c.hq = u.id;
+    c.mission = { type: 'hold', x: u.x, y: u.y, r: 300, deadline: null, priority: 'safe', from: c.parent, issuedAt: 0, text: '町の近くで待て' };
+  });
+  var bhq = addUnit(w, { side: 'red', name: '第7旅団司令部', type: 'hq', cmd: bri.id, x: 5000, y: 1500, str: 200 });
+  var brec = addUnit(w, { side: 'red', name: '旅団偵察隊', type: 'recon', cmd: bri.id, x: 4800, y: 2200, str: 120 });
+  bri.units.push(bhq.id, brec.id); bri.hq = bhq.id;
+  var rahq = addUnit(w, { side: 'red', name: '第21連隊司令部', type: 'hq', cmd: ra.id, x: 4700, y: 2000, str: 150 });
+  var rbhq = addUnit(w, { side: 'red', name: '第22連隊司令部', type: 'hq', cmd: rb.id, x: 5700, y: 2100, str: 150 });
+  ra.units.push(rahq.id); ra.hq = rahq.id; rb.units.push(rbhq.id); rb.hq = rbhq.id;
+  [ra, rb].forEach(function (c) { var u = getUnit(w, c.hq); c.mission = { type: 'hold', x: u.x, y: u.y, r: 500, deadline: null, priority: 'safe', from: bri.id, issuedAt: 0, text: '町の近くで待て' }; });
+
+  setPlayer(w, div.id);
+}
+
+/* --- 記録 --- */
+function log(w, side, text, kind) {
+  w.log.push({ t: w.time, side: side, text: text, kind: kind || 'info' });
+  if (w.log.length > 400) w.log.shift();
+  w.events.push({ t: w.time, side: side, text: text, kind: kind || 'info' });
+}
+function clockText(min) {
+  var total = START_HOUR * 60 + Math.floor(min);
+  var day = Math.floor(total / 1440) + 1, m = total % 1440;
+  return day + '日目 ' + ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2);
+}
+function missionText(w, m) {
+  if (!m) return '任務なし';
+  var where = placeName(w, m.x, m.y);
+  var s = (m.type === 'advance' ? where + 'へ進め' : where + 'を守れ');
+  if (m.text && m.from === 'gov') s = m.text;
+  var extra = [];
+  extra.push('範囲' + m.r + 'm');
+  if (m.deadline != null) extra.push('期限 ' + clockText(m.deadline));
+  extra.push(m.priority === 'speed' ? '速さを優先' : '損害を抑える');
+  return s + '(' + extra.join('、') + ')';
+}
+function placeName(w, x, y) {
+  var best = null, bd = 1e9;
+  w.map.towns.forEach(function (t) { var d = dist(x, y, t.x, t.y); if (d < bd) { bd = d; best = t; } });
+  if (best && bd < best.r + 300) return best.name;
+  if (best && bd < 2500) {
+    var dx = x - best.x, dy = y - best.y, dir;
+    if (Math.abs(dx) > Math.abs(dy)) dir = dx > 0 ? '東' : '西'; else dir = dy > 0 ? '南' : '北';
+    return best.name + 'の' + dir + (Math.round(bd / 100) / 10) + 'km';
+  }
+  return '地点(' + (x / 1000).toFixed(1) + ', ' + (y / 1000).toFixed(1) + ')';
+}
+
+/* --- 席(遊ぶ人が座る指揮官) --- */
+function setPlayer(w, cmdId) {
+  var c = getCmd(w, cmdId);
+  if (!c || !c.alive) return false;
+  w.cmds.forEach(function (k) { k.ctrl = 'ai'; });
+  c.ctrl = 'player';
+  w.player = c.id;
+  return true;
+}
+function playerCmd(w) { return w.player ? getCmd(w, w.player) : null; }
+function playerSide(w) { var p = playerCmd(w); return p ? p.side : 'blue'; }
+
+/* --- 動かす --- */
+function setDest(w, u, x, y) {
+  x = clamp(x, 0, MAP - 1); y = clamp(y, 0, MAP - 1);
+  if (u.dest && dist(u.dest.x, u.dest.y, x, y) < 50 && u.path) return true;
+  var p = findPath(w.map, u.x, u.y, x, y);
+  if (!p) { u.dest = null; u.path = null; return false; }
+  u.dest = { x: x, y: y }; u.path = p; u.pathI = 0;
+  return true;
+}
+function stopUnit(u) { u.dest = null; u.path = null; u.pathI = 0; }
+function orderDirect(w, unitId, x, y) {
+  // 直属の部隊への命令(すぐ届く)
+  var u = getUnit(w, unitId), p = playerCmd(w);
+  if (!u || !u.alive || !p || p.units.indexOf(u.id) < 0) return false;
+  u.manual = true;
+  if (x == null) { stopUnit(u); return true; }
+  return setDest(w, u, x, y);
+}
+
+/* --- 伝令 --- */
+function sendMission(w, fromId, toId, mission) {
+  var from = getCmd(w, fromId), to = getCmd(w, toId);
+  if (!from || !to || !to.alive) return null;
+  var m = {};
+  for (var k in mission) m[k] = mission[k];
+  m.from = fromId; m.issuedAt = w.time;
+  var fhq = getUnit(w, from.hq), thq = getUnit(w, to.hq);
+  if (!fhq || !thq || !fhq.alive || !thq.alive) return null;
+  var c = { id: 'k' + (w.nextId++), side: from.side, from: fromId, to: toId, mission: m, x: fhq.x, y: fhq.y, path: null, pathI: 0, repathAt: -999, alive: true, sentAt: w.time };
+  if (dist(fhq.x, fhq.y, thq.x, thq.y) < 150) { deliver(w, c); return c; }
+  w.couriers.push(c);
+  return c;
+}
+function deliver(w, k) {
+  var to = getCmd(w, k.to);
+  k.alive = false;
+  if (!to || !to.alive) return;
+  if (to.mission && to.mission.issuedAt > k.mission.issuedAt) { // 古い命令は捨てる
+    log(w, to.side, to.title + 'に古い命令が届いたが、新しい命令があるので捨てた', 'info');
+    return;
+  }
+  to.mission = k.mission;
+  to.inbox.push({ t: w.time, mission: k.mission });
+  var from = getCmd(w, k.from);
+  var late = w.time - k.sentAt;
+  log(w, to.side, '伝令が' + to.title + 'に届いた(' + late + '分かかった):' + missionText(w, k.mission), to.ctrl === 'player' ? 'order' : 'arrive');
+}
+function moveCouriers(w) {
+  w.couriers.forEach(function (k) {
+    if (!k.alive) return;
+    var to = getCmd(w, k.to), thq = to && to.alive ? getUnit(w, to.hq) : null;
+    if (!thq || !thq.alive) { k.alive = false; log(w, k.side, '伝令の届け先がいなくなった', 'warn'); return; }
+    // 捕まるか
+    for (var i = 0; i < w.units.length; i++) {
+      var e = w.units[i];
+      if (!e.alive || e.side === k.side) continue;
+      if (dist(e.x, e.y, k.x, k.y) < COURIER_CATCH) {
+        k.alive = false;
+        log(w, k.side, to.title + 'あての伝令が敵に捕まった。命令は届かない', 'warn');
+        log(w, e.side, e.name + 'が敵の伝令を捕まえた', 'info');
+        return;
+      }
+    }
+    var last = k.path && k.path.length ? k.path[k.path.length - 1] : null;
+    if (!k.path || w.time - k.repathAt >= 10 || (last && dist(last.x, last.y, thq.x, thq.y) > 300)) {
+      k.path = findPath(w.map, k.x, k.y, thq.x, thq.y) || []; k.pathI = 0; k.repathAt = w.time;
+    }
+    var left = COURIER_SPEED * (cellSpeed(w.map, idxAt(k.x, k.y)) >= ROAD_SPEED ? 1.2 : 0.8);
+    walk(k, left);
+    if (dist(k.x, k.y, thq.x, thq.y) < 150) deliver(w, k);
+  });
+  w.couriers = w.couriers.filter(function (k) { return k.alive; });
+}
+function walk(o, left) {
+  while (left > 0 && o.path && o.pathI < o.path.length) {
+    var p = o.path[o.pathI], d = dist(o.x, o.y, p.x, p.y);
+    if (d <= left) { o.x = p.x; o.y = p.y; left -= d; o.pathI++; }
+    else { o.x += (p.x - o.x) / d * left; o.y += (p.y - o.y) / d * left; left = 0; }
+  }
+  return left;
+}
+
+/* --- 見える・見えない --- */
+function canSee(w, o, e) {
+  var d = dist(o.x, o.y, e.x, e.y);
+  if (d <= 200) return true;
+  var range = UNIT_TYPES[o.type].sight;
+  var c = TERR[terrAt(w.map, e.x, e.y)].conceal;
+  if (w.time - e.movedAt <= 1) c *= 0.5;      // 動いていると見つかりやすい
+  if (w.time - e.firedAt <= 5) c = 0;          // 撃つと位置がばれる
+  var detect = Math.max(300, range * (1 - c));
+  if (d > detect) return false;
+  return los(w.map, o.x, o.y, e.x, e.y);
+}
+function computeVision(w) {
+  ['blue', 'red'].forEach(function (side) {
+    var vis = {}, own = w.units.filter(function (u) { return u.alive && u.side === side; });
+    w.units.forEach(function (e) {
+      if (!e.alive || e.side === side) return;
+      for (var i = 0; i < own.length; i++) {
+        if (canSee(w, own[i], e)) { vis[e.id] = own[i].id; break; }
+      }
+    });
+    Object.keys(vis).forEach(function (id) {
+      var e = getUnit(w, id), k = w.known[side][id], spotter = getUnit(w, vis[id]);
+      var fresh = !k || w.time - k.t > 30;
+      w.known[side][id] = { id: id, x: e.x, y: e.y, t: w.time, type: e.type, est: Math.max(50, Math.round(e.str / 100) * 100), alive: true };
+      if (fresh) log(w, side, spotter.name + 'が敵の' + UNIT_TYPES[e.type].name + '(約' + w.known[side][id].est + '人)を見つけた:' + placeName(w, e.x, e.y), 'spot');
+    });
+    w.vis[side] = vis;
+  });
+}
+
+/* --- 戦闘 --- */
+function computeCombat(w) {
+  var dmg = {};
+  w.units.forEach(function (u) {
+    if (!u.alive) return;
+    var t = UNIT_TYPES[u.type], best = null, bd = 1e9;
+    w.units.forEach(function (e) {
+      if (!e.alive || e.side === u.side || !w.vis[u.side][e.id]) return;
+      var d = dist(u.x, u.y, e.x, e.y);
+      if (d < t.range && d < bd && los(w.map, u.x, u.y, e.x, e.y)) { bd = d; best = e; }
+    });
+    if (!best) return;
+    var def = TERR[terrAt(w.map, best.x, best.y)].defense * (w.time - best.movedAt <= 1 ? 1.2 : 1);
+    var amount = 0.004 * u.str * (1 - 0.7 * bd / t.range) * def * (1 - u.fat / 200) * (0.5 + u.mor / 200) * t.fire * (u.broken ? 0.3 : 1);
+    dmg[best.id] = (dmg[best.id] || 0) + amount;
+    u.firedAt = w.time; u.fat = Math.min(100, u.fat + 0.1);
+    u.target = best.id;
+  });
+  Object.keys(dmg).forEach(function (id) {
+    var e = getUnit(w, id), a = dmg[id];
+    e.str = Math.max(0, e.str - a);
+    e.mor = Math.max(0, e.mor - a / e.max * 150 - 0.15);
+    e.hitAt = w.time;
+  });
+  w.units.forEach(function (u) {
+    if (u.alive && u.str < u.max * 0.25) destroyUnit(w, u);
+  });
+}
+function destroyUnit(w, u) {
+  u.alive = false; stopUnit(u);
+  log(w, u.side, u.name + 'が壊滅した', 'lost');
+  var known = w.known[u.side === 'blue' ? 'red' : 'blue'][u.id];
+  if (known && w.vis[u.side === 'blue' ? 'red' : 'blue'][u.id]) { known.alive = false; log(w, u.side === 'blue' ? 'red' : 'blue', '敵の' + u.name + 'を壊滅させた', 'win'); }
+  w.cmds.forEach(function (c) {
+    if (c.alive && c.hq === u.id) {
+      c.alive = false;
+      var parent = c.parent ? getCmd(w, c.parent) : null;
+      c.subs.forEach(function (sid) { // 部下は、上の指揮官が引き継ぐ
+        var s = getCmd(w, sid); if (!s) return;
+        s.parent = parent ? parent.id : null;
+        if (parent) parent.subs.push(sid);
+      });
+      if (parent) { parent.subs = parent.subs.filter(function (x) { return x !== c.id; }); parent.planned = ''; }
+      c.units.forEach(function (uid) { var o = getUnit(w, uid); if (o && o.alive && parent) { o.cmd = parent.id; parent.units.push(uid); } });
+      c.subs = [];
+      log(w, c.side, c.title + 'が倒れた。' + (parent ? parent.title + 'が部下を引き継ぐ' : '指揮する者がいない'), 'lost');
+      if (w.player === c.id) { w.player = null; log(w, c.side, 'あなたの指揮官が倒れた。別の席を選んでください', 'warn'); }
+    }
+  });
+}
+
+/* --- AIの指揮官 --- */
+function aliveSubs(w, c) { return c.subs.map(function (id) { return getCmd(w, id); }).filter(function (s) { return s && s.alive && getUnit(w, s.hq) && getUnit(w, s.hq).alive; }); }
+function threatDir(w, side, x, y) {
+  // 敵がいそうな向き(見たことのある敵の重心、なければ相手の陣地の向き)
+  var sx = 0, sy = 0, n = 0, kn = w.known[side];
+  Object.keys(kn).forEach(function (id) { var k = kn[id]; if (k.alive && w.time - k.t < 240) { sx += k.x; sy += k.y; n++; } });
+  var tx, ty;
+  if (n) { tx = sx / n - x; ty = sy / n - y; } else { tx = 0; ty = side === 'blue' ? -1 : 1; }
+  var l = Math.sqrt(tx * tx + ty * ty) || 1;
+  return { x: tx / l, y: ty / l };
+}
+function bestCover(w, x, y, radius) {
+  // 近くで最も守りやすい場所(森・町・高い所)
+  var best = { x: x, y: y }, bs = -1e9;
+  for (var dy = -radius; dy <= radius; dy += CELL) for (var dx = -radius; dx <= radius; dx += CELL) {
+    var px = clamp(x + dx, 0, MAP - 1), py = clamp(y + dy, 0, MAP - 1), i = idxAt(px, py);
+    if (!passable(w.map, i) || w.map.terr[i] === WATER) continue;
+    var s = (1 - TERR[w.map.terr[i]].defense) * 100 + w.map.h[i] * 0.3 - Math.sqrt(dx * dx + dy * dy) * 0.02;
+    if (s > bs) { bs = s; best = { x: (i % N + 0.5) * CELL, y: (((i / N) | 0) + 0.5) * CELL }; }
+  }
+  return best;
+}
+function highGround(w, x, y, radius) {
+  var best = { x: x, y: y }, bh = -1e9;
+  for (var dy = -radius; dy <= radius; dy += CELL) for (var dx = -radius; dx <= radius; dx += CELL) {
+    var px = clamp(x + dx, 0, MAP - 1), py = clamp(y + dy, 0, MAP - 1), i = idxAt(px, py);
+    if (!passable(w.map, i)) continue;
+    if (w.map.h[i] > bh) { bh = w.map.h[i]; best = { x: (i % N + 0.5) * CELL, y: (((i / N) | 0) + 0.5) * CELL }; }
+  }
+  return best;
+}
+function enemyInArea(w, side, x, y, r) {
+  // 最近(10分以内)見た敵のうち、範囲の中にいるもの
+  var kn = w.known[side], out = [];
+  Object.keys(kn).forEach(function (id) { var k = kn[id]; if (k.alive && w.time - k.t <= 10 && dist(k.x, k.y, x, y) < r) out.push(k); });
+  return out;
+}
+function planCommander(w, c) {
+  var m = c.mission; if (!m) return;
+  var subs = aliveSubs(w, c);
+  var hq = getUnit(w, c.hq);
+  if (!hq || !hq.alive) return;
+  // 守る場所に敵が入ったら、大胆な指揮官ほど取り返しに行く
+  var counter = null;
+  if (m.type === 'hold' && c.bold > 0.35 && subs.length) {
+    var inside = enemyInArea(w, c.side, m.x, m.y, m.r + 200);
+    if (inside.length) {
+      var cx = 0, cy = 0, es = 0;
+      inside.forEach(function (k) { cx += k.x; cy += k.y; es += k.est; });
+      var own = subs.reduce(function (sum, s) { return sum + getUnit(w, s.hq).str; }, 0);
+      if (own / Math.max(1, es) > (c.bold >= 0.65 ? 0.8 : 1.3)) counter = { x: Math.round(cx / inside.length / 100) * 100, y: Math.round(cy / inside.length / 100) * 100 };
+    }
+  }
+  var key = m.issuedAt + ':' + m.type + ':' + m.x + ':' + m.y + ':' + subs.length + ':' + (counter ? counter.x + ',' + counter.y : '-');
+  if (c.planned !== key && subs.length && w.time - (c.plannedAt || -999) >= (c.planned && c.planned.split(':')[0] === String(m.issuedAt) ? 20 : 0)) {
+    var wasCounter = c.planned && c.planned.slice(-1) !== '-';
+    c.planned = key; c.plannedAt = w.time;
+    if (counter) {
+      if (!wasCounter) log(w, c.side, c.title + '(' + personality(c) + ')は、守る場所に入った敵を追い出すよう命じた', 'info');
+      subs.forEach(function (s, i) {
+        var off = (i - (subs.length - 1) / 2) * 300;
+        sendMission(w, c.id, s.id, { type: 'advance', x: counter.x + off, y: counter.y, r: 250, deadline: null, priority: m.priority, counter: true });
+      });
+    } else {
+      var dx = m.x - hq.x, dy = m.y - hq.y, l = Math.sqrt(dx * dx + dy * dy) || 1;
+      var dir = { x: dx / l, y: dy / l };
+      if (m.type === 'hold') dir = threatDir(w, c.side, m.x, m.y);
+      var perp = { x: -dir.y, y: dir.x };
+      var reserve = null, front = subs.slice();
+      if (subs.length >= 2 && (c.bold < 0.4 || (m.priority === 'safe' && m.type === 'advance' && c.bold < 0.5))) reserve = front.pop();
+      var spacing = m.type === 'hold' ? Math.max(400, 2 * m.r / Math.max(1, front.length)) : Math.max(400, m.r * 1.2 / Math.max(1, front.length - 1));
+      front.forEach(function (s, i) {
+        var off = (i - (front.length - 1) / 2) * spacing;
+        var tx = clamp(m.x + perp.x * off, 100, MAP - 100), ty = clamp(m.y + perp.y * off, 100, MAP - 100);
+        if (m.type === 'hold') { var cv = bestCover(w, tx, ty, c.bold < 0.5 ? 400 : 200); tx = cv.x; ty = cv.y; }
+        sendMission(w, c.id, s.id, { type: m.type, x: Math.round(tx), y: Math.round(ty), r: Math.max(250, Math.round(m.r / Math.max(1, front.length))), deadline: m.deadline, priority: m.priority });
+      });
+      if (reserve) {
+        var back = m.type === 'advance' ? 1500 : 1000;
+        var rx = clamp(m.x - dir.x * back, 100, MAP - 100), ry = clamp(m.y - dir.y * back, 100, MAP - 100);
+        sendMission(w, c.id, reserve.id, { type: 'hold', x: Math.round(rx), y: Math.round(ry), r: 400, deadline: null, priority: 'safe', reserve: true });
+        if (!c.reserveLogged || c.reserveLogged !== m.issuedAt) { c.reserveLogged = m.issuedAt; log(w, c.side, c.title + '(' + personality(c) + ')は' + reserve.title.replace(/長$/, '') + 'を予備として後ろに残した', 'info'); }
+      }
+    }
+  }
+  // 自分の直属の部隊(司令部・偵察隊)
+  if (w.time - c.lastHQMove >= 30) {
+    c.lastHQMove = w.time;
+    var dd = threatDir(w, c.side, hq.x, hq.y);
+    c.units.forEach(function (uid) {
+      var u = getUnit(w, uid);
+      if (!u || !u.alive || u.broken) return;
+      if (u.type === 'hq') {
+        var target;
+        if (subs.length) {
+          var sx = 0, sy = 0;
+          subs.forEach(function (s) { var su = getUnit(w, s.hq); sx += su.x; sy += su.y; });
+          sx /= subs.length; sy /= subs.length;
+          target = { x: sx - dd.x * 1200, y: sy - dd.y * 1200 };
+        } else target = { x: m.x - dd.x * 800, y: m.y - dd.y * 800 };
+        if (dist(u.x, u.y, target.x, target.y) > 400) setDest(w, u, target.x, target.y);
+      } else if (u.type === 'recon') {
+        var px = hq.x + (m.x - hq.x) * 0.65, py = hq.y + (m.y - hq.y) * 0.65;
+        if (m.type === 'hold') { px = m.x + dd.x * 1500; py = m.y + dd.y * 1500; }
+        var hg = highGround(w, px, py, 1200);
+        if (!u.dest || dist(u.dest.x, u.dest.y, hg.x, hg.y) > 300) setDest(w, u, hg.x, hg.y);
+      }
+    });
+  }
+}
+function enemiesNear(w, u, radius) {
+  var out = [];
+  Object.keys(w.vis[u.side]).forEach(function (id) {
+    var e = getUnit(w, id);
+    if (e && e.alive && dist(u.x, u.y, e.x, e.y) < radius) out.push(e);
+  });
+  return out;
+}
+function localRatio(w, u, enemies, radius) {
+  var es = enemies.reduce(function (s, e) { var k = w.known[u.side][e.id]; return s + (e.type === 'inf' ? (k ? k.est : e.str) : (k ? k.est : e.str) * 0.3); }, 0);
+  var fs = 0;
+  w.units.forEach(function (f) { if (f.alive && f.side === u.side && !f.broken && dist(f.x, f.y, u.x, u.y) < radius) fs += f.type === 'inf' ? f.str : f.str * 0.3; });
+  return fs / Math.max(1, es);
+}
+function rallyPoint(w, u, c) {
+  var who = c && c.hq === u.id ? (c.parent ? getCmd(w, c.parent) : null) : c;
+  var h = who && who.alive ? getUnit(w, who.hq) : null;
+  if (h && h.alive && h.id !== u.id) return { x: h.x, y: h.y };
+  var td = threatDir(w, u.side, u.x, u.y);
+  return { x: clamp(u.x - td.x * 1500, 100, MAP - 100), y: clamp(u.y - td.y * 1500, 100, MAP - 100) };
+}
+function unitBehavior(w, u, c) {
+  // 崩れた部隊は命令を聞かない
+  if (u.mor < 25 && !u.broken) {
+    u.broken = true; u.hiding = false;
+    log(w, u.side, u.name + 'が崩れて後退し始めた。命令を聞かない', 'lost');
+  }
+  if (u.broken) {
+    if (u.mor > 50) { u.broken = false; log(w, u.side, u.name + 'が立ち直った', 'info'); }
+    else {
+      var rp = rallyPoint(w, u, c);
+      if (dist(u.x, u.y, rp.x, rp.y) > 300) { if (!u.dest || w.time % 15 === 0) setDest(w, u, rp.x, rp.y); }
+      else { stopUnit(u); if (w.time - u.hitAt > 10) u.mor = Math.min(100, u.mor + 0.2); }
+      u.posture = 'retreat'; u.note = '崩れて後退中';
+      return;
+    }
+  }
+  if (!c || c.ctrl === 'player') { // 遊ぶ人の直属の部隊は、勝手に動かない
+    u.posture = u.path && u.pathI < u.path.length ? 'move' : 'hold';
+    u.note = '';
+    return;
+  }
+  if (u.type !== 'inf') { // 司令部・偵察隊:敵が近いと離れる
+    var near = enemiesNear(w, u, u.type === 'recon' ? 1200 : 1500).filter(function (e) { return e.type === 'inf'; });
+    if (near.length) {
+      var e = near[0], dx = u.x - e.x, dy = u.y - e.y, l = Math.sqrt(dx * dx + dy * dy) || 1;
+      if (w.time % 10 === 0 || !u.dest) setDest(w, u, u.x + dx / l * 1000, u.y + dy / l * 1000);
+      u.note = '敵を避けて下がる';
+    } else u.note = '';
+    u.posture = u.path && u.pathI < u.path.length ? 'move' : 'hold';
+    return;
+  }
+  var m = c.mission;
+  var bold = c.bold;
+  if (!m) { u.posture = 'hold'; return; }
+  // 疲れ
+  var near2 = enemiesNear(w, u, 2000);
+  var restLimit = bold >= 0.65 ? 95 : 85;
+  if (u.resting) { if (u.fat < 50 || near2.length) u.resting = false; }
+  else if (u.fat > restLimit && !near2.length) { u.resting = true; log(w, u.side, u.name + 'が疲れて休んでいる', 'info'); }
+  if (u.resting) { stopUnit(u); u.posture = 'rest'; u.note = '休んでいる'; return; }
+
+  var dT = dist(u.x, u.y, m.x, m.y);
+  if (m.type === 'hold') {
+    if (dT > Math.max(150, m.r * 0.5)) { setDest(w, u, m.x, m.y); u.posture = 'move'; u.note = '守る場所へ向かう'; }
+    else { stopUnit(u); u.posture = 'hold'; u.note = near2.length ? '守って撃ち合う' : '守っている'; }
+    return;
+  }
+  // 進め
+  if (dT < m.r) { stopUnit(u); u.posture = 'hold'; u.hiding = false; u.note = '目標に着いた'; return; }
+  var near3 = enemiesNear(w, u, 1500).filter(function (e) { return e.type === 'inf'; });
+  if (near3.length) {
+    var ratio = localRatio(w, u, near3, 1500);
+    var need = m.priority === 'speed' ? 1.4 - bold : 2.0 - bold;  // 大胆なほど、不利でも進む
+    if (ratio >= need) {
+      u.hiding = false;
+      var e1 = near3[0];
+      if (dist(u.x, u.y, e1.x, e1.y) < 300) { stopUnit(u); u.posture = 'fight'; u.note = '敵と撃ち合っている'; }
+      else { setDest(w, u, m.x, m.y); u.posture = 'move'; u.note = '敵を押しのけて進む'; }
+    } else {
+      if (!u.hiding) {
+        u.hiding = true;
+        var cv = bestCover(w, u.x, u.y, 300); setDest(w, u, cv.x, cv.y);
+        log(w, u.side, u.name + '(' + personality(c) + ')は敵が強そうなので止まり、身を隠した', 'info');
+      }
+      u.posture = 'hold'; u.note = '敵が強そうなので隠れて様子を見る';
+    }
+    return;
+  }
+  if (u.hiding && !near2.length) u.hiding = false;
+  if (u.hiding) { u.posture = 'hold'; u.note = '隠れて様子を見る'; return; }
+  setDest(w, u, m.x, m.y); u.posture = 'move'; u.note = '目標へ進む';
+}
+
+/* --- 動き・疲れ・士気 --- */
+function moveUnits(w) {
+  w.units.forEach(function (u) {
+    u.px = u.x; u.py = u.y;
+    if (!u.alive) return;
+    var moving = u.path && u.pathI < u.path.length;
+    if (moving) {
+      var i = idxAt(u.x, u.y), sp = cellSpeed(w.map, i) || FORD_SPEED;
+      var v = UNIT_TYPES[u.type].speed * sp * (1 - u.fat / 250) * (w.time - u.hitAt <= 2 ? 0.5 : 1);
+      walk(u, v);
+      u.movedAt = w.time;
+      u.fat = Math.min(100, u.fat + (sp >= ROAD_SPEED ? 0.04 : 0.08));
+      if (u.pathI >= u.path.length) { u.path = null; }
+    } else if (w.time - u.firedAt > 2 && w.time - u.hitAt > 2) {
+      u.fat = Math.max(0, u.fat - 0.15);
+    }
+    if (w.time - u.hitAt > 10) u.mor = Math.min(100, u.mor + 0.05);
+  });
+}
+
+/* --- 目標の状況 --- */
+function objectiveStatus(w) {
+  var t = w.map.towns[0];
+  if (!t) return null;
+  var b = 0, r = 0;
+  w.units.forEach(function (u) {
+    if (!u.alive || u.type !== 'inf') return;
+    if (dist(u.x, u.y, t.x, t.y) < t.r + 200) { if (u.side === 'blue') b++; else r++; }
+  });
+  var holder = b && !r ? 'blue' : r && !b ? 'red' : b && r ? 'contested' : 'none';
+  return { town: t.name, holder: holder };
+}
+
+/* --- 1分進める --- */
+function tick(w) {
+  w.time += 1;
+  w.cmds.forEach(function (c) { if (c.alive && c.ctrl === 'ai') planCommander(w, c); });
+  w.units.forEach(function (u) { if (u.alive) unitBehavior(w, u, cmdOfUnit(w, u)); });
+  moveCouriers(w);
+  moveUnits(w);
+  computeVision(w);
+  computeCombat(w);
+  var st = objectiveStatus(w);
+  if (st && st.holder !== w.flags.holder) {
+    if (st.holder === 'blue') log(w, 'all', '青軍が' + st.town + 'を押さえた', 'win');
+    else if (st.holder === 'red' && w.flags.holder) log(w, 'all', '赤軍が' + st.town + 'を取り返した', 'win');
+    else if (st.holder === 'contested') log(w, 'all', st.town + 'で両軍がぶつかっている', 'warn');
+    w.flags.holder = st.holder;
+  }
+}
+function step(w, minutes) { for (var i = 0; i < minutes; i++) tick(w); }
+
+/* --- 時計(時刻で計る。止める・速さを変える) --- */
+function Clock(w) { this.w = w; this.speed = 0; this.acc = 0; this.last = null; }
+Clock.prototype.advance = function (nowMs) {
+  if (this.last == null) { this.last = nowMs; return 0; }
+  var dt = Math.min(1000, Math.max(0, nowMs - this.last)); // 画面を離れていた分は進めない
+  this.last = nowMs;
+  if (!this.speed) return 0;
+  this.acc += dt / 1000 * this.speed; // ゲームの秒
+  var n = 0;
+  while (this.acc >= 60 && n < 40) { tick(this.w); this.acc -= 60; n++; }
+  if (n >= 40) this.acc = 0;
+  return n;
+};
+Clock.prototype.frac = function () { return this.acc / 60; };
+
+var api = {
+  VERSION: VERSION, MAP: MAP, CELL: CELL, N: N, TERR: TERR, UNIT_TYPES: UNIT_TYPES,
+  PLAIN: PLAIN, FOREST: FOREST, TOWN: TOWN, WATER: WATER, COURIER_SPEED: COURIER_SPEED,
+  rng: rng, genMap: genMap, emptyMap: emptyMap, findPath: findPath, los: los, canSee: canSee,
+  createWorld: createWorld, addUnit: addUnit, addCmd: addCmd, getCmd: getCmd, getUnit: getUnit,
+  setPlayer: setPlayer, playerCmd: playerCmd, playerSide: playerSide, setDest: setDest, orderDirect: orderDirect,
+  sendMission: sendMission, step: step, tick: tick, computeVision: computeVision, computeCombat: computeCombat,
+  planCommander: planCommander, unitBehavior: unitBehavior, moveUnits: moveUnits, destroyUnit: destroyUnit,
+  idxAt: idxAt, terrAt: terrAt, hAt: hAt, cellSpeed: cellSpeed, clockText: clockText, missionText: missionText,
+  placeName: placeName, personality: personality, objectiveStatus: objectiveStatus, Clock: Clock, dist: dist
+};
+root.__wargameRules = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+/* ===== 画面 ===== */
+(function () {
+'use strict';
+var R = window.__wargameRules;
+var $ = function (id) { return document.getElementById(id); };
+
+/* --- 効果音(各アプリ共通の仕組み) --- */
+var SE = (function () {
+  var ctx = null;
+  function get(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+  function put(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function on() { return get('se-on', '1') !== '0'; }
+  function vol() { var v = parseFloat(get('se-vol', '0.6')); return isNaN(v) ? 0.6 : v; }
+  function ac() {
+    if (!ctx) { var A = window.AudioContext || window.webkitAudioContext; if (!A) return null; try { ctx = new A(); } catch (e) { return null; } }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function tone(c, f, f2, dur, type, gain, at) {
+    var o = c.createOscillator(), g = c.createGain(), t = c.currentTime + (at || 0);
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain * vol(), t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  var lib = {
+    tap: function (c) { tone(c, 1100, 700, 0.04, 'triangle', 0.18); },
+    tab: function (c) { tone(c, 520, 420, 0.06, 'sine', 0.2); },
+    send: function (c) { tone(c, 520, 880, 0.09, 'sine', 0.25); },
+    arrive: function (c) { tone(c, 1320, 1300, 0.45, 'sine', 0.22); tone(c, 1980, 1960, 0.3, 'sine', 0.08, 0.01); },
+    spot: function (c) { tone(c, 440, 440, 0.08, 'square', 0.08); tone(c, 440, 440, 0.08, 'square', 0.08, 0.13); },
+    lost: function (c) { tone(c, 300, 140, 0.4, 'sawtooth', 0.12); },
+    win: function (c) { [523, 659, 784, 1047].forEach(function (f, i) { tone(c, f, f, 0.22, 'triangle', 0.18, i * 0.09); }); },
+    error: function (c) { tone(c, 160, 140, 0.18, 'square', 0.1); }
+  };
+  return {
+    play: function (name) { if (!on() || !lib[name]) return; var c = ac(); if (c) try { lib[name](c); } catch (e) {} },
+    on: on, vol: vol,
+    setOn: function (v) { put('se-on', v ? '1' : '0'); },
+    setVol: function (v) { put('se-vol', String(v)); }
+  };
+})();
+
+/* --- 状態 --- */
+var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+var S = {
+  w: null, clock: null, seed: 7, running: false, speed: 60,
+  view: { s: 0.08, ox: 0, oy: 0 }, sel: null, // sel: {kind:'unit'|'known', id}
+  form: null,  // 任務を書いている途中 {to, type, x, y, r, deadline, priority}
+  pick: null,  // 'mission' | 'move' 地図をタップして場所を選ぶ
+  dirty: true, terrain: null, lastSpotSE: -999
+};
+var canvas = $('map'), ctx = canvas.getContext ? canvas.getContext('2d') : null;
+
+var PAL = dark ? {
+  low: [62, 74, 70], high: [96, 92, 76], forest: [52, 82, 60], town: [92, 92, 90], water: [52, 86, 112],
+  contour: 'rgba(200,180,140,0.18)', contour5: 'rgba(200,180,140,0.34)', road: '#5e4c32', bridge: '#ddd', grid: 'rgba(221,227,216,0.08)', label: '#dde3d8', labelBg: 'rgba(22,29,31,0.7)',
+  blue: '#6f9be0', red: '#e07a6c', ink: '#dde3d8', paper: '#232c2e', grease: '#e8b830'
+} : {
+  low: [220, 226, 206], high: [206, 196, 164], forest: [160, 186, 140], town: [186, 182, 172], water: [132, 170, 200],
+  contour: 'rgba(120,92,52,0.22)', contour5: 'rgba(120,92,52,0.45)', road: '#8a6e4b', bridge: '#1e2b2f', grid: 'rgba(30,43,47,0.08)', label: '#1e2b2f', labelBg: 'rgba(230,233,223,0.8)',
+  blue: '#2c5aa0', red: '#b03a2e', ink: '#1e2b2f', paper: '#e6e9df', grease: '#d9a520'
+};
+
+/* --- 始める --- */
+function newGame(seed, keepSeat) {
+  var prevSeat = keepSeat && S.w ? (R.playerCmd(S.w) || {}).title : null;
+  S.seed = seed;
+  S.w = R.createWorld({ seed: seed });
+  if (prevSeat) { var c = S.w.cmds.filter(function (k) { return k.title === prevSeat; })[0]; if (c) R.setPlayer(S.w, c.id); }
+  S.clock = new R.Clock(S.w);
+  S.clock.speed = 0; S.running = false;
+  S.sel = null; S.form = null; S.pick = null;
+  S.terrain = null;
+  layout(); fitView();
+  renderAll();
+}
+
+/* --- 画面の大きさ --- */
+function layout() {
+  var top = $('bar').getBoundingClientRect().height || 48;
+  canvas.style.top = top + 'px';
+  $('orders').style.top = (top + 10) + 'px';
+  $('zoom').style.top = (top + 10) + 'px';
+  $('toast').style.top = (top + 10) + 'px';
+  var dpr = window.devicePixelRatio || 1;
+  var cw = canvas.clientWidth || window.innerWidth, ch = canvas.clientHeight || (window.innerHeight - top);
+  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  S.dpr = dpr; S.cw = cw; S.ch = ch;
+  S.dirty = true;
+}
+function fitView() {
+  var cw = S.cw || 800, ch = S.ch || 600;
+  var s = Math.min(cw, ch) / R.MAP * 0.96;
+  S.view.s = s; S.view.ox = (cw - R.MAP * s) / 2; S.view.oy = (ch - R.MAP * s) / 2;
+  S.dirty = true;
+}
+function toScreen(x, y) { return { x: x * S.view.s + S.view.ox, y: y * S.view.s + S.view.oy }; }
+function toWorld(sx, sy) { return { x: (sx - S.view.ox) / S.view.s, y: (sy - S.view.oy) / S.view.s }; }
+function zoomAt(f, sx, sy) {
+  var ns = Math.max(0.03, Math.min(1.2, S.view.s * f)); f = ns / S.view.s;
+  S.view.ox = sx - (sx - S.view.ox) * f; S.view.oy = sy - (sy - S.view.oy) * f; S.view.s = ns; S.dirty = true;
+}
+
+/* --- 地形の絵(最初に1回だけ作る) --- */
+function buildTerrain() {
+  var m = S.w.map, n = m.n, px = 8, c = document.createElement('canvas');
+  c.width = n * px; c.height = n * px;
+  var g = c.getContext ? c.getContext('2d') : null;
+  if (!g) return null;
+  var hmin = 1e9, hmax = -1e9, i;
+  for (i = 0; i < n * n; i++) { if (m.terr[i] !== R.WATER) { hmin = Math.min(hmin, m.h[i]); hmax = Math.max(hmax, m.h[i]); } }
+  function mix(a, b, t) { return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * t) + ',' + Math.round(a[1] + (b[1] - a[1]) * t) + ',' + Math.round(a[2] + (b[2] - a[2]) * t) + ')'; }
+  for (i = 0; i < n * n; i++) {
+    var x = i % n, y = (i / n) | 0, t = (m.h[i] - hmin) / (hmax - hmin || 1);
+    var base = mix(PAL.low, PAL.high, t);
+    g.fillStyle = base; g.fillRect(x * px, y * px, px, px);
+    if (false) {
+      g.fillStyle = 'rgb(' + PAL.town.join(',') + ')'; g.fillRect(x * px, y * px, px, px);
+      g.fillStyle = 'rgba(30,43,47,0.55)'; g.fillRect(x * px + 1 + (x % 2), y * px + 1 + (y % 2), 3, 3); g.fillRect(x * px + 5 - (y % 2), y * px + 5 - (x % 2), 2, 2);
+    }
+  }
+  for (i = 0; i < n * n; i++) {
+    if (m.terr[i] !== R.FOREST) continue;
+    var fx = i % n, fy = (i / n) | 0;
+    g.fillStyle = 'rgb(' + PAL.forest.join(',') + ')';
+    g.beginPath(); g.arc((fx + 0.5) * px, (fy + 0.5) * px, px * 0.78, 0, 6.3); g.fill();
+  }
+  for (i = 0; i < n * n; i++) {
+    if (m.terr[i] !== R.FOREST) continue;
+    var fx2 = i % n, fy2 = (i / n) | 0;
+    if ((fx2 * 7 + fy2 * 13) % 3) continue;
+    g.fillStyle = dark ? 'rgba(20,40,24,0.5)' : 'rgba(60,96,58,0.45)';
+    g.beginPath(); g.arc(fx2 * px + 2 + ((fx2 * 5 + fy2 * 3) % 4), fy2 * px + 2 + ((fx2 + fy2 * 7) % 4), 1.3, 0, 6.3); g.fill();
+  }
+  for (i = 0; i < n * n; i++) {
+    if (m.terr[i] !== R.TOWN) continue;
+    var tx = i % n, ty = (i / n) | 0;
+    g.fillStyle = 'rgb(' + PAL.town.join(',') + ')'; g.fillRect(tx * px - 0.5, ty * px - 0.5, px + 1, px + 1);
+  }
+  for (i = 0; i < n * n; i++) {
+    if (m.terr[i] !== R.TOWN) continue;
+    var tx2 = i % n, ty2 = (i / n) | 0;
+    g.fillStyle = dark ? 'rgba(10,14,15,0.6)' : 'rgba(30,43,47,0.6)';
+    g.fillRect(tx2 * px + 1 + (tx2 % 2), ty2 * px + 1 + (ty2 % 2), 3, 2.5); g.fillRect(tx2 * px + 4 - (ty2 % 2), ty2 * px + 5 - (tx2 % 2), 2.5, 2);
+  }
+  // 等高線(10mごと、50mごとに太く)。升目の角の高さから、なめらかな線を引く
+  var cornerH = function (cx, cy) { // 角の高さ=まわり4升の平均
+    var sum = 0, k = 0;
+    for (var dy = -1; dy <= 0; dy++) for (var dx = -1; dx <= 0; dx++) { var xx = cx + dx, yy = cy + dy; if (xx >= 0 && yy >= 0 && xx < n && yy < n) { sum += m.h[yy * n + xx]; k++; } }
+    return sum / k;
+  };
+  var C = new Float32Array((n + 1) * (n + 1));
+  for (var cy = 0; cy <= n; cy++) for (var cx = 0; cx <= n; cx++) C[cy * (n + 1) + cx] = cornerH(cx, cy);
+  var lo = Math.floor(hmin / 10) * 10, hi = Math.ceil(hmax / 10) * 10;
+  for (var lv = lo; lv <= hi; lv += 10) {
+    g.strokeStyle = lv % 50 === 0 ? PAL.contour5 : PAL.contour; g.lineWidth = lv % 50 === 0 ? 1.4 : 0.9; g.beginPath();
+    for (var yy2 = 0; yy2 < n; yy2++) for (var xx2 = 0; xx2 < n; xx2++) {
+      var a0 = C[yy2 * (n + 1) + xx2], a1 = C[yy2 * (n + 1) + xx2 + 1], a2 = C[(yy2 + 1) * (n + 1) + xx2 + 1], a3 = C[(yy2 + 1) * (n + 1) + xx2];
+      var pts = [];
+      var edge = function (p, q, ax, ay, bx, by) { if ((p < lv) !== (q < lv)) { var t = (lv - p) / (q - p); pts.push([(ax + (bx - ax) * t) * px, (ay + (by - ay) * t) * px]); } };
+      edge(a0, a1, xx2, yy2, xx2 + 1, yy2); edge(a1, a2, xx2 + 1, yy2, xx2 + 1, yy2 + 1); edge(a2, a3, xx2 + 1, yy2 + 1, xx2, yy2 + 1); edge(a3, a0, xx2, yy2 + 1, xx2, yy2);
+      for (var q2 = 0; q2 + 1 < pts.length; q2 += 2) { g.moveTo(pts[q2][0], pts[q2][1]); g.lineTo(pts[q2 + 1][0], pts[q2 + 1][1]); }
+    }
+    g.stroke();
+  }
+  // 川(なめらかな線)
+  var sc = px / m.cell;
+  function smooth(points, width, color) {
+    g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath();
+    g.moveTo(points[0].x * sc, points[0].y * sc);
+    for (var j = 1; j < points.length - 1; j++) { var mx = (points[j].x + points[j + 1].x) / 2, my = (points[j].y + points[j + 1].y) / 2; g.quadraticCurveTo(points[j].x * sc, points[j].y * sc, mx * sc, my * sc); }
+    var L = points[points.length - 1]; g.lineTo(L.x * sc, L.y * sc); g.stroke();
+  }
+  if (m.riverPts && m.riverPts.length) { smooth(m.riverPts, px * 1.5, 'rgb(' + PAL.water.join(',') + ')'); smooth(m.riverPts, px * 0.5, dark ? 'rgba(160,200,230,0.35)' : 'rgba(255,255,255,0.35)'); }
+  // 道
+  g.lineCap = 'round';
+  (m.roadLines || []).forEach(function (r) {
+    g.strokeStyle = PAL.road; g.lineWidth = 3.6; g.beginPath(); g.moveTo(r[0] * sc, r[1] * sc); g.lineTo(r[2] * sc, r[3] * sc); g.stroke();
+    g.strokeStyle = dark ? '#7d6a4a' : '#efe3c4'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(r[0] * sc, r[1] * sc); g.lineTo(r[2] * sc, r[3] * sc); g.stroke();
+  });
+  // 橋と浅瀬
+  for (i = 0; i < n * n; i++) {
+    var x4 = i % n, y4 = (i / n) | 0;
+    if (m.road[i] === 2) { g.fillStyle = dark ? '#d8c39a' : '#efe3c4'; g.fillRect(x4 * px + 1, y4 * px - 1, px - 2, px + 2); g.strokeStyle = PAL.bridge; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x4 * px, y4 * px - 1); g.lineTo(x4 * px, (y4 + 1) * px + 1); g.moveTo((x4 + 1) * px, y4 * px - 1); g.lineTo((x4 + 1) * px, (y4 + 1) * px + 1); g.stroke(); }
+    if (m.ford[i]) { g.strokeStyle = dark ? '#cfe0ea' : '#ffffff'; g.setLineDash([2, 2]); g.lineWidth = 1.5; g.beginPath(); g.moveTo(x4 * px, (y4 + 0.5) * px); g.lineTo((x4 + 1) * px, (y4 + 0.5) * px); g.stroke(); g.setLineDash([]); }
+  }
+  return c;
+}
+
+/* --- 描く --- */
+function lerpPos(u) {
+  var f = S.clock ? S.clock.frac() : 1; if (!S.running) f = 1;
+  return { x: u.px + (u.x - u.px) * f, y: u.py + (u.y - u.py) * f };
+}
+function sizeMark(w, u) {
+  if (u.type === 'inf') return 'II';
+  if (u.type === 'recon') return 'I';
+  var c = R.getCmd(w, u.cmd);
+  if (!c) return '';
+  if (/師団/.test(c.title)) return 'XX';
+  if (/旅団/.test(c.title)) return 'X';
+  if (/連隊/.test(c.title)) return 'III';
+  return '';
+}
+function drawSymbol(g, x, y, type, color, opts) {
+  opts = opts || {};
+  var W = 26, H = 17, l = x - W / 2, t = y - H / 2;
+  g.save();
+  g.globalAlpha = opts.alpha == null ? 1 : opts.alpha;
+  if (type === 'hq') { g.strokeStyle = color; g.lineWidth = 2; g.beginPath(); g.moveTo(l, t); g.lineTo(l, t + H + 10); g.stroke(); }
+  g.fillStyle = opts.ghost ? 'transparent' : color;
+  g.fillRect(l, t, W, H);
+  g.strokeStyle = opts.ghost ? color : PAL.ink; g.lineWidth = opts.ghost ? 1.5 : 1;
+  if (opts.broken) g.setLineDash([3, 2]);
+  g.strokeRect(l + 0.5, t + 0.5, W - 1, H - 1);
+  g.setLineDash([]);
+  var fg = opts.ghost ? color : PAL.paper;
+  g.strokeStyle = fg; g.lineWidth = 1.4; g.beginPath();
+  if (type === 'inf') { g.moveTo(l + 2, t + 2); g.lineTo(l + W - 2, t + H - 2); g.moveTo(l + W - 2, t + 2); g.lineTo(l + 2, t + H - 2); }
+  else if (type === 'recon') { g.moveTo(l + 2, t + H - 2); g.lineTo(l + W - 2, t + 2); }
+  else if (type === 'hq') { g.moveTo(l + 5, t + H / 2); g.lineTo(l + W - 5, t + H / 2); }
+  g.stroke();
+  if (opts.mark) { g.fillStyle = opts.ghost ? color : PAL.ink; g.font = '700 9px ' + getComputedStyle(document.body).fontFamily; g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText(opts.mark, x, t - 1); }
+  if (opts.bar != null) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(l, t + H + 2, W, 3); g.fillStyle = opts.bar > 0.5 ? color : PAL.grease; g.fillRect(l, t + H + 2, W * opts.bar, 3); }
+  g.restore();
+}
+function arrow(g, a, b, color, width, dash) {
+  g.save(); g.strokeStyle = color; g.fillStyle = color; g.lineWidth = width; if (dash) g.setLineDash(dash);
+  g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
+  var ang = Math.atan2(b.y - a.y, b.x - a.x), L = 9 + width * 2;
+  g.beginPath(); g.moveTo(b.x, b.y); g.lineTo(b.x - L * Math.cos(ang - 0.4), b.y - L * Math.sin(ang - 0.4)); g.lineTo(b.x - L * Math.cos(ang + 0.4), b.y - L * Math.sin(ang + 0.4)); g.closePath(); g.fill();
+  g.restore();
+}
+function label(g, text, x, y, opts) {
+  opts = opts || {};
+  g.save();
+  g.font = (opts.weight || 400) + ' ' + (opts.size || 12) + 'px ' + getComputedStyle(document.body).fontFamily;
+  g.textAlign = opts.align || 'center'; g.textBaseline = 'middle';
+  var w = g.measureText(text).width;
+  if (opts.bg !== false) { g.fillStyle = PAL.labelBg; var bx = opts.align === 'left' ? x - 2 : x - w / 2 - 3; g.fillRect(bx, y - 8, w + 6, 16); }
+  g.fillStyle = opts.color || PAL.label; g.fillText(text, x, y);
+  g.restore();
+}
+function draw() {
+  S.dirty = false;
+  if (!ctx) return;
+  var w = S.w, g = ctx, dpr = S.dpr;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = dark ? '#1a2123' : '#cfd4c5'; g.fillRect(0, 0, S.cw, S.ch);
+  if (!S.terrain) S.terrain = buildTerrain();
+  var o = toScreen(0, 0), sz = R.MAP * S.view.s;
+  g.imageSmoothingEnabled = S.view.s < 0.08;
+  if (S.terrain) g.drawImage(S.terrain, o.x, o.y, sz, sz);
+  // 1kmの方眼
+  g.strokeStyle = PAL.grid; g.lineWidth = 1; g.beginPath();
+  for (var k = 0; k <= 10; k++) { var a = toScreen(k * 1000, 0), b = toScreen(k * 1000, R.MAP); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); a = toScreen(0, k * 1000); b = toScreen(R.MAP, k * 1000); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
+  g.stroke();
+  // 町の名前
+  w.map.towns.forEach(function (t) { var p = toScreen(t.x, t.y - t.r - 160); label(g, t.name, p.x, p.y, { weight: 700, size: 13 }); });
+
+  var me = R.playerCmd(w), side = me ? me.side : 'blue', col = side === 'blue' ? PAL.blue : PAL.red, ecol = side === 'blue' ? PAL.red : PAL.blue;
+  // 自分の任務(上から来たもの)
+  if (me && me.mission) {
+    var mp = toScreen(me.mission.x, me.mission.y), mr = me.mission.r * S.view.s;
+    g.save(); g.strokeStyle = PAL.grease; g.lineWidth = 3; g.setLineDash([8, 5]); g.beginPath(); g.arc(mp.x, mp.y, Math.max(8, mr), 0, 6.3); g.stroke(); g.restore();
+    var hq0 = R.getUnit(w, me.hq); if (hq0 && hq0.alive) arrow(g, toScreen(hq0.x, hq0.y), mp, PAL.grease, 3, [10, 6]);
+  }
+  // 部下に出した任務
+  if (me) me.subs.forEach(function (sid) {
+    var s = R.getCmd(w, sid); if (!s || !s.alive || !s.mission) return;
+    var su = R.getUnit(w, s.hq); if (!su || !su.alive) return;
+    var p = lerpPos(su), tp = toScreen(s.mission.x, s.mission.y);
+    arrow(g, toScreen(p.x, p.y), tp, col, 1.6, s.mission.type === 'hold' ? [4, 4] : null);
+    g.save(); g.strokeStyle = col; g.globalAlpha = 0.5; g.lineWidth = 1; g.beginPath(); g.arc(tp.x, tp.y, Math.max(5, s.mission.r * S.view.s), 0, 6.3); g.stroke(); g.restore();
+  });
+  // 伝令
+  w.couriers.forEach(function (c) {
+    if (c.side !== side) return;
+    var p = toScreen(c.x, c.y), to = R.getCmd(w, c.to), tu = to ? R.getUnit(w, to.hq) : null;
+    if (tu) { var tp2 = toScreen(tu.x, tu.y); g.save(); g.strokeStyle = col; g.globalAlpha = 0.45; g.setLineDash([2, 4]); g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(tp2.x, tp2.y); g.stroke(); g.restore(); }
+    g.fillStyle = PAL.grease; g.strokeStyle = PAL.ink; g.beginPath(); g.arc(p.x, p.y, 4.5, 0, 6.3); g.fill(); g.stroke();
+  });
+  // 見たことのある敵(今は見えない=最後に見た場所)
+  var kn = w.known[side], vis = w.vis[side];
+  Object.keys(kn).forEach(function (id) {
+    var k = kn[id]; if (vis[id] || !k.alive) return;
+    var p = toScreen(k.x, k.y), ago = w.time - k.t;
+    drawSymbol(g, p.x, p.y, k.type, ecol, { ghost: true, alpha: Math.max(0.3, 0.8 - ago / 300) });
+    label(g, (ago < 60 ? ago + '分前' : Math.floor(ago / 60) + '時間前'), p.x, p.y + 20, { size: 10, color: ecol });
+  });
+  // 今見えている敵
+  w.units.forEach(function (u) {
+    if (!u.alive || u.side === side || !vis[u.id]) return;
+    var p = lerpPos(u), sp = toScreen(p.x, p.y);
+    drawSymbol(g, sp.x, sp.y, u.type, ecol, { mark: sizeMark(w, u) });
+  });
+  // 味方
+  w.units.forEach(function (u) {
+    if (!u.alive || u.side !== side) return;
+    var p = lerpPos(u), sp = toScreen(p.x, p.y);
+    var mine = me && me.units.indexOf(u.id) >= 0;
+    if (mine && u.dest) arrow(g, sp, toScreen(u.dest.x, u.dest.y), PAL.ink, 1.2, [3, 3]);
+    drawSymbol(g, sp.x, sp.y, u.type, col, { mark: sizeMark(w, u), broken: u.broken, bar: u.str / u.max });
+    if (mine) { g.save(); g.strokeStyle = PAL.grease; g.lineWidth = 2; g.strokeRect(sp.x - 16, sp.y - 12, 32, 24); g.restore(); }
+  });
+  // 選んでいるもの
+  if (S.sel) {
+    var su2 = S.sel.kind === 'unit' ? R.getUnit(w, S.sel.id) : kn[S.sel.id];
+    if (su2) {
+      var pp = S.sel.kind === 'unit' ? lerpPos(su2) : su2, sp2 = toScreen(pp.x, pp.y);
+      g.save(); g.strokeStyle = PAL.grease; g.lineWidth = 3; g.beginPath(); g.arc(sp2.x, sp2.y, 22, 0, 6.3); g.stroke(); g.restore();
+    }
+  }
+  // 任務を書いている途中の目標
+  if (S.form && S.form.x != null) {
+    var fp = toScreen(S.form.x, S.form.y);
+    g.save(); g.strokeStyle = PAL.grease; g.fillStyle = 'rgba(217,165,32,0.15)'; g.lineWidth = 2.5;
+    g.beginPath(); g.arc(fp.x, fp.y, Math.max(6, S.form.r * S.view.s), 0, 6.3); g.fill(); g.stroke(); g.restore();
+    var fc = R.getCmd(w, S.form.to), fu = fc ? R.getUnit(w, fc.hq) : null;
+    if (fu) arrow(g, toScreen(fu.x, fu.y), fp, PAL.grease, 2.5, S.form.type === 'hold' ? [5, 4] : null);
+  }
+  // 縮尺
+  var barM = S.view.s > 0.3 ? 200 : S.view.s > 0.12 ? 500 : 1000, bl = barM * S.view.s;
+  g.fillStyle = PAL.ink; g.fillRect(14, S.ch - 22, bl, 3);
+  label(g, barM >= 1000 ? barM / 1000 + 'km' : barM + 'm', 14 + bl + 6, S.ch - 21, { align: 'left', size: 11 });
+}
+
+/* --- 上の帯・任務の札 --- */
+function renderBar() {
+  var w = S.w;
+  $('clock').textContent = R.clockText(w.time);
+  $('ver').textContent = ' ' + R.VERSION;
+  $('playBtn').textContent = S.running ? '❚❚' : '▶';
+  $('playBtn').setAttribute('aria-label', S.running ? '止める' : '進める');
+  Array.prototype.forEach.call(document.querySelectorAll('[data-speed]'), function (b) { b.setAttribute('aria-pressed', String(+b.dataset.speed === S.speed)); });
+  var me = R.playerCmd(w);
+  $('seatBtn').textContent = '席:' + (me ? me.title : 'なし');
+}
+function renderOrders() {
+  var w = S.w, me = R.playerCmd(w), box = $('orders');
+  if (!me) { box.className = ''; box.innerHTML = '<div class="who">指揮官が倒れました</div><div class="mis">「席」から別の指揮官を選んでください。</div>'; return; }
+  var st = R.objectiveStatus(w) || { town: '目標', holder: 'none' };
+  var holder = { blue: '青軍が押さえている', red: '赤軍が押さえている', contested: '両軍がぶつかっている', none: '誰もいない' }[st.holder];
+  var from = me.mission && me.mission.from === 'gov' ? '政府' : me.mission && R.getCmd(w, me.mission.from) ? R.getCmd(w, me.mission.from).title : '';
+  box.className = me.side === 'red' ? 'red' : '';
+  box.innerHTML = '<div class="who">' + esc(me.title) + '(' + R.personality(me) + ')</div>' +
+    '<div class="mis">' + (from ? esc(from) + 'からの任務:' : '') + esc(R.missionText(w, me.mission)) + '</div>' +
+    '<div class="obj">' + esc(st.town) + ':' + holder + '</div>';
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+/* --- 下の札 --- */
+function relation(w, u) {
+  var me = R.playerCmd(w); if (!me) return { kind: 'none' };
+  if (me.units.indexOf(u.id) >= 0) return { kind: 'direct' };
+  var c = R.getCmd(w, u.cmd);
+  if (c && c.hq === u.id && c.parent === me.id) return { kind: 'sub', cmd: c };
+  if (c && c.id === me.id) return { kind: 'direct' };
+  return { kind: 'other', cmd: c };
+}
+function pendingFor(w, cmdId) { return w.couriers.filter(function (k) { return k.to === cmdId && k.alive; }).length; }
+function renderSheet() {
+  var w = S.w, el = $('sheet');
+  if (!S.sel) { el.classList.remove('open'); el.innerHTML = ''; return; }
+  var html = '';
+  if (S.sel.kind === 'known') {
+    var me0 = R.playerCmd(w), side = me0 ? me0.side : 'blue', k = w.known[side][S.sel.id];
+    if (!k) { S.sel = null; return renderSheet(); }
+    var now = !!w.vis[side][k.id], ago = w.time - k.t;
+    html = '<button class="close" data-act="close" aria-label="閉じる">×</button>' +
+      '<h2>敵の' + R.UNIT_TYPES[k.type].name + '<small>' + (now ? '今見えている' : '最後に見たのは' + (ago < 60 ? ago + '分前' : Math.floor(ago / 60) + '時間前')) + '</small></h2>' +
+      '<div class="row"><span class="k">数(見た目の見積もり)</span>約' + k.est + '人</div>' +
+      '<div class="row"><span class="k">場所</span>' + esc(R.placeName(w, k.x, k.y)) + '・' + R.TERR[R.terrAt(w.map, k.x, k.y)].name + '</div>' +
+      (now ? '' : '<p class="note">今もそこにいるとは限りません。</p>');
+    el.innerHTML = html; el.classList.add('open'); return;
+  }
+  var u = R.getUnit(w, S.sel.id);
+  if (!u) { S.sel = null; return renderSheet(); }
+  var c = R.getCmd(w, u.cmd), rel = relation(w, u);
+  var lead = c && c.hq === u.id ? c : c;
+  var stat = function (k, v, f) { return '<div class="stat">' + k + '<b>' + v + '</b>' + (f != null ? '<div class="meter"><i style="width:' + Math.round(f * 100) + '%"></i></div>' : '') + '</div>'; };
+  html += '<button class="close" data-act="close" aria-label="閉じる">×</button>';
+  html += '<h2>' + esc(u.name) + '<small>' + R.UNIT_TYPES[u.type].name + (u.alive ? '' : '・壊滅') + '</small></h2>';
+  html += '<div class="stats">' + stat('人数', Math.round(u.str) + '人', u.str / u.max) + stat('疲れ', Math.round(u.fat), u.fat / 100) + stat('士気', Math.round(u.mor), u.mor / 100) + '</div>';
+  html += '<div class="row"><span class="k">いる場所</span>' + esc(R.placeName(w, u.x, u.y)) + '・' + R.TERR[R.terrAt(w.map, u.x, u.y)].name + '</div>';
+  if (u.note) html += '<div class="row"><span class="k">ようす</span>' + esc(u.note) + '</div>';
+  if (lead) {
+    var up = lead.parent ? R.getCmd(w, lead.parent) : null;
+    html += '<div class="row"><span class="k">指揮官</span>' + esc(lead.title) + '(' + R.personality(lead) + ')' + (up ? '・上官は' + esc(up.title) : '') + (lead.ctrl === 'player' ? '・あなた' : '') + '</div>';
+    html += '<div class="row"><span class="k">今の任務</span>' + esc(R.missionText(w, lead.mission)) + '</div>';
+    var pend = pendingFor(w, lead.id);
+    if (pend) html += '<p class="note">この指揮官あての伝令が' + pend + '人、向かっています。</p>';
+  }
+  if (!u.alive) { /* 何もしない */ }
+  else if (rel.kind === 'direct') {
+    if (S.pick === 'move') html += '<div class="form"><div class="pickHint">地図をタップして、行き先を選んでください。</div><div class="acts"><button class="btn" data-act="cancelPick">やめる</button></div></div>';
+    else html += '<div class="acts"><button class="btn main" data-act="move">ここへ動かす(すぐ届く)</button>' + (u.dest ? '<button class="btn" data-act="stop">止まる</button>' : '') + '</div>' +
+      (u.broken ? '<p class="note">崩れているので、命令を聞きません。</p>' : '');
+  } else if (rel.kind === 'sub') {
+    if (S.form && S.form.to === rel.cmd.id) html += formHtml(w);
+    else html += '<div class="acts"><button class="btn main" data-act="mission">' + esc(rel.cmd.title) + 'に任務を出す</button></div>';
+  } else if (rel.kind === 'other') {
+    html += '<p class="note">あなたの直接の部下ではありません。動かすには、この部隊の上官に任務を出します。</p>';
+  }
+  el.innerHTML = html; el.classList.add('open');
+}
+function formHtml(w) {
+  var f = S.form;
+  function seg(field, opts) {
+    return '<div class="seg">' + opts.map(function (o) { return '<button data-f="' + field + '" data-v="' + o[0] + '" aria-pressed="' + (String(f[field]) === String(o[0])) + '">' + o[1] + '</button>'; }).join('') + '</div>';
+  }
+  var where = f.x == null ? '<div class="pickHint">地図をタップして、目標の場所を選んでください。</div>' : '<div class="row">' + esc(R.placeName(w, f.x, f.y)) + ' <button class="btn" data-act="repick" style="min-height:30px">選び直す</button></div>';
+  return '<div class="form">' +
+    '<div class="field"><span>種類</span>' + seg('type', [['advance', '進め'], ['hold', '守れ']]) + '</div>' +
+    '<div class="field"><span>目標の場所</span>' + where + '</div>' +
+    '<div class="field"><span>範囲</span>' + seg('r', [[300, '300m'], [600, '600m'], [1000, '1km']]) + '</div>' +
+    '<div class="field"><span>期限</span>' + seg('deadline', [['none', 'なし'], [120, '2時間後'], [360, '6時間後'], [720, '12時間後']]) + '</div>' +
+    '<div class="field"><span>優先すること</span>' + seg('priority', [['speed', '速さ'], ['safe', '損害を抑える']]) + '</div>' +
+    '<div class="acts"><button class="btn main" data-act="send"' + (f.x == null ? ' disabled' : '') + '>伝令を出す</button><button class="btn" data-act="cancelForm">やめる</button></div>' +
+    '</div>';
+}
+function onSheetClick(e) {
+  var b = e.target.closest('button'); if (!b) return;
+  var w = S.w, act = b.dataset.act;
+  if (b.dataset.f) {
+    var v = b.dataset.v; if (b.dataset.f === 'r') v = +v;
+    S.form[b.dataset.f] = v; SE.play('tab'); renderSheet(); S.dirty = true; return;
+  }
+  var u = S.sel && S.sel.kind === 'unit' ? R.getUnit(w, S.sel.id) : null;
+  if (act === 'close') { select(null); return; }
+  if (act === 'move') { S.pick = 'move'; SE.play('tap'); renderSheet(); return; }
+  if (act === 'cancelPick') { S.pick = null; renderSheet(); return; }
+  if (act === 'stop' && u) { R.orderDirect(w, u.id, null); SE.play('tap'); renderSheet(); S.dirty = true; return; }
+  if (act === 'mission' && u) { startForm(R.getCmd(w, u.cmd).id); return; }
+  if (act === 'repick') { S.pick = 'mission'; S.form.x = null; S.form.y = null; renderSheet(); S.dirty = true; return; }
+  if (act === 'cancelForm') { S.form = null; S.pick = null; renderSheet(); S.dirty = true; return; }
+  if (act === 'send') { sendForm(); return; }
+}
+function startForm(cmdId) {
+  var c = R.getCmd(S.w, cmdId);
+  S.form = { to: cmdId, type: 'advance', x: null, y: null, r: 600, deadline: 'none', priority: 'speed' };
+  if (c && c.mission && c.mission.from === R.playerCmd(S.w).id) { S.form.type = c.mission.type; S.form.r = c.mission.r; S.form.priority = c.mission.priority; }
+  S.pick = 'mission'; SE.play('tap'); renderSheet(); S.dirty = true;
+}
+function sendForm() {
+  var w = S.w, f = S.form, me = R.playerCmd(w);
+  if (!f || f.x == null || !me) { SE.play('error'); return false; }
+  var m = { type: f.type, x: Math.round(f.x), y: Math.round(f.y), r: f.r, deadline: f.deadline === 'none' ? null : w.time + (+f.deadline), priority: f.priority };
+  var k = R.sendMission(w, me.id, f.to, m);
+  if (!k) { toast('伝令を出せませんでした(届け先がいない)'); SE.play('error'); return false; }
+  var to = R.getCmd(w, f.to);
+  toast(to.title + 'へ伝令を出しました');
+  SE.play('send');
+  S.form = null; S.pick = null; renderSheet(); renderLog(); S.dirty = true;
+  return true;
+}
+
+/* --- 記録 --- */
+function renderLog() {
+  var w = S.w, side = R.playerSide(w), ul = $('logList');
+  if (!$('logBox').classList.contains('open')) return;
+  var items = w.log.filter(function (l) { return l.side === side || l.side === 'all'; }).slice(-150).reverse();
+  ul.innerHTML = items.length ? items.map(function (l) {
+    var t = R.clockText(l.t).split(' ')[1];
+    return '<li class="' + l.kind + '"><time>' + t + '</time><span>' + esc(l.text) + '</span></li>';
+  }).join('') : '<li><time></time><span>まだ何も起きていません。▶で時間を進めます。</span></li>';
+}
+
+/* --- 席 --- */
+function renderSeats() {
+  var w = S.w, me = R.playerCmd(w), ul = $('seatList');
+  function depth(c) { var d = 0; while (c && c.parent) { c = R.getCmd(w, c.parent); d++; } return d; }
+  var order = [];
+  function walk(c) { order.push(c); c.subs.forEach(function (id) { var s = R.getCmd(w, id); if (s) walk(s); }); }
+  w.cmds.filter(function (c) { return !c.parent; }).forEach(walk);
+  w.cmds.forEach(function (c) { if (order.indexOf(c) < 0) order.push(c); });
+  ul.innerHTML = order.map(function (c) {
+    var sw = c.side === 'blue' ? PAL.blue : PAL.red;
+    return '<li><button data-seat="' + c.id + '" style="padding-left:' + (6 + depth(c) * 18) + 'px"' + (me && me.id === c.id ? ' aria-current="true"' : '') + (c.alive ? '' : ' disabled') + '>' +
+      '<span class="sw" style="background:' + sw + '"></span>' + esc(c.title) + '<small>' + (c.side === 'blue' ? '青軍' : '赤軍') + '・' + R.personality(c) + '</small></button></li>';
+  }).join('');
+}
+function chooseSeat(id) {
+  if (!R.setPlayer(S.w, id)) return false;
+  S.sel = null; S.form = null; S.pick = null;
+  SE.play('tab');
+  var me = R.playerCmd(S.w);
+  toast(me.title + 'の席に座りました');
+  renderAll();
+  return true;
+}
+
+/* --- 知らせ --- */
+var toastTimer = null;
+function toast(text) {
+  var t = $('toast'); t.textContent = text; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('show'); }, 3200);
+}
+function drainEvents() {
+  var w = S.w, side = R.playerSide(w), any = false;
+  w.events.forEach(function (ev) {
+    if (ev.side !== side && ev.side !== 'all') return;
+    any = true;
+    if (ev.kind === 'order') { toast(ev.text); SE.play('arrive'); }
+    else if (ev.kind === 'spot') { if (w.time - S.lastSpotSE > 5) { SE.play('spot'); S.lastSpotSE = w.time; } }
+    else if (ev.kind === 'lost') SE.play('lost');
+    else if (ev.kind === 'win') { SE.play('win'); toast(ev.text); }
+    else if (ev.kind === 'warn' && /あなた|捕まった/.test(ev.text)) toast(ev.text);
+  });
+  w.events = [];
+  return any;
+}
+
+/* --- 選ぶ --- */
+function select(sel) {
+  S.sel = sel; S.pick = null;
+  if (!sel) S.form = null;
+  else if (S.form) { var u = sel.kind === 'unit' ? R.getUnit(S.w, sel.id) : null; if (!u || R.getCmd(S.w, u.cmd).id !== S.form.to) S.form = null; }
+  renderSheet(); S.dirty = true;
+}
+function hitTest(sx, sy) {
+  var w = S.w, side = R.playerSide(w), best = null, bd = 20;
+  w.units.forEach(function (u) {
+    if (!u.alive) return;
+    if (u.side !== side && !w.vis[side][u.id]) return;
+    var p = toScreen(u.x, u.y), d = Math.hypot(p.x - sx, p.y - sy) - (u.side === side ? 3 : 0);
+    if (d < bd) { bd = d; best = u.side === side ? { kind: 'unit', id: u.id } : { kind: 'known', id: u.id }; }
+  });
+  var kn = w.known[side];
+  Object.keys(kn).forEach(function (id) {
+    var k = kn[id]; if (!k.alive || w.vis[side][id]) return;
+    var p = toScreen(k.x, k.y), d = Math.hypot(p.x - sx, p.y - sy);
+    if (d < bd) { bd = d; best = { kind: 'known', id: id }; }
+  });
+  return best;
+}
+function tapMap(sx, sy) {
+  var w = S.w, p = toWorld(sx, sy);
+  if (p.x < 0 || p.y < 0 || p.x > R.MAP || p.y > R.MAP) { if (!S.pick) select(null); return; }
+  if (S.pick === 'mission' && S.form) {
+    S.form.x = Math.round(p.x); S.form.y = Math.round(p.y); S.pick = null; SE.play('tap'); renderSheet(); S.dirty = true; return;
+  }
+  if (S.pick === 'move' && S.sel) {
+    var ok = R.orderDirect(w, S.sel.id, p.x, p.y);
+    S.pick = null; SE.play(ok ? 'send' : 'error'); if (!ok) toast('そこへは行けません'); renderSheet(); S.dirty = true; return;
+  }
+  var h = hitTest(sx, sy);
+  if (h) SE.play('tap');
+  select(h);
+}
+
+/* --- 地図の操作(ドラッグで動かす・つまんで拡大) --- */
+var ptrs = {}, drag = null;
+function onDown(e) {
+  canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+  ptrs[e.pointerId] = { x: e.offsetX, y: e.offsetY };
+  var ids = Object.keys(ptrs);
+  if (ids.length === 1) drag = { x: e.offsetX, y: e.offsetY, ox: S.view.ox, oy: S.view.oy, moved: false };
+  else if (ids.length === 2) { var a = ptrs[ids[0]], b = ptrs[ids[1]]; drag = { pinch: Math.hypot(a.x - b.x, a.y - b.y), s: S.view.s, moved: true }; }
+}
+function onMove(e) {
+  if (!ptrs[e.pointerId]) return;
+  ptrs[e.pointerId] = { x: e.offsetX, y: e.offsetY };
+  var ids = Object.keys(ptrs);
+  if (!drag) return;
+  if (drag.pinch && ids.length === 2) {
+    var a = ptrs[ids[0]], b = ptrs[ids[1]], d = Math.hypot(a.x - b.x, a.y - b.y);
+    zoomAt(drag.s * d / drag.pinch / S.view.s, (a.x + b.x) / 2, (a.y + b.y) / 2);
+  } else if (!drag.pinch) {
+    var dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+    if (drag.moved) { S.view.ox = drag.ox + dx; S.view.oy = drag.oy + dy; S.dirty = true; }
+  }
+}
+function onUp(e) {
+  var wasDrag = drag;
+  delete ptrs[e.pointerId];
+  if (Object.keys(ptrs).length === 0) {
+    if (wasDrag && !wasDrag.moved && !wasDrag.pinch) tapMap(e.offsetX, e.offsetY);
+    drag = null;
+  }
+}
+
+/* --- 時間 --- */
+function setRunning(v) { S.running = v; S.clock.speed = v ? S.speed : 0; S.clock.last = null; renderBar(); S.dirty = true; }
+function setSpeed(v) { S.speed = v; if (S.running) S.clock.speed = v; SE.play('tab'); renderBar(); }
+
+/* --- 全部描き直す --- */
+function renderAll() { renderBar(); renderOrders(); renderSheet(); renderLog(); S.dirty = true; }
+
+var lastUi = 0;
+function frame(now) {
+  var n = S.clock.advance(now);
+  if (n > 0) {
+    drainEvents();
+    if (now - lastUi > 250) { lastUi = now; renderBar(); renderOrders(); renderLog(); if (S.sel && !S.form) renderSheet(); }
+    S.dirty = true;
+  }
+  if (S.running) S.dirty = true;
+  if (S.dirty) draw();
+  requestAnimationFrame(frame);
+}
+
+/* --- つなぐ --- */
+function bind() {
+  canvas.addEventListener('pointerdown', onDown);
+  canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointerup', onUp);
+  canvas.addEventListener('pointercancel', function (e) { delete ptrs[e.pointerId]; drag = null; });
+  canvas.addEventListener('wheel', function (e) { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.offsetX, e.offsetY); }, { passive: false });
+  $('zin').onclick = function () { zoomAt(1.3, S.cw / 2, S.ch / 2); };
+  $('zout').onclick = function () { zoomAt(1 / 1.3, S.cw / 2, S.ch / 2); };
+  $('zfit').onclick = fitView;
+  $('playBtn').onclick = function () { setRunning(!S.running); SE.play('tap'); };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-speed]'), function (b) { b.onclick = function () { setSpeed(+b.dataset.speed); }; });
+  $('sheet').addEventListener('click', onSheetClick);
+  $('seatBtn').onclick = function () { renderSeats(); $('seatDlg').classList.add('open'); SE.play('tap'); };
+  $('seatClose').onclick = function () { $('seatDlg').classList.remove('open'); };
+  $('seatList').addEventListener('click', function (e) { var b = e.target.closest('[data-seat]'); if (!b) return; chooseSeat(b.dataset.seat); $('seatDlg').classList.remove('open'); $('intro').classList.remove('open'); });
+  $('logBtn').onclick = function () { $('logBox').classList.toggle('open'); renderLog(); SE.play('tap'); };
+  $('logClose').onclick = function () { $('logBox').classList.remove('open'); };
+  $('setBtn').onclick = function () { $('seOn').checked = SE.on(); $('seVol').value = SE.vol(); $('verNote').textContent = '今開いている版:' + R.VERSION; $('setDlg').classList.add('open'); };
+  $('setClose').onclick = function () { $('setDlg').classList.remove('open'); };
+  $('seOn').onchange = function () { SE.setOn($('seOn').checked); SE.play('tap'); };
+  $('seVol').oninput = function () { SE.setVol(+$('seVol').value); };
+  $('seVol').onchange = function () { SE.play('tap'); };
+  $('newMap').onclick = function () { newGame(Math.floor(Math.random() * 1e6) + 1, true); $('setDlg').classList.remove('open'); toast('新しい戦場で始めます'); };
+  $('restart').onclick = function () { newGame(S.seed, true); $('setDlg').classList.remove('open'); toast('最初からやり直します'); };
+  $('introGo').onclick = function () { $('intro').classList.remove('open'); SE.play('tap'); };
+  $('introSeat').onclick = function () { renderSeats(); $('seatDlg').classList.add('open'); };
+  window.addEventListener('resize', function () { layout(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    if (e.key === ' ') { e.preventDefault(); setRunning(!S.running); }
+    if (e.key === 'Escape') { if (S.pick) { S.pick = null; renderSheet(); } else select(null); document.querySelectorAll('.dlg.open').forEach(function (d) { if (d.id !== 'intro') d.classList.remove('open'); }); }
+  });
+}
+
+bind();
+newGame(S.seed);
+requestAnimationFrame(frame);
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
+
+/* テスト用の窓口 */
+window.__wargame = {
+  rules: R, SE: SE,
+  get world() { return S.w; }, get state() { return S; },
+  newGame: newGame, setRunning: setRunning, setSpeed: setSpeed, chooseSeat: chooseSeat,
+  select: select, startForm: startForm, sendForm: sendForm, tapWorld: function (x, y) { var p = toScreen(x, y); tapMap(p.x, p.y); },
+  renderAll: renderAll, draw: function () { draw(); }, frame: function (ms) { var n = S.clock.advance(ms); if (n) { drainEvents(); renderAll(); } return n; }
+};
+})();
+</script>
+</body>
+</html>
