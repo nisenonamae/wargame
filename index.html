@@ -96,9 +96,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   background: var(--paper); border-top: 1px solid var(--line);
   padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
   max-height: 58vh; overflow-y: auto;
-  transform: translateY(105%); transition: transform .18s ease-out;
+  transform: translateY(calc(100% + 40px)); visibility: hidden;
+  transition: transform .18s ease-out, visibility 0s linear .18s;
 }
-#sheet.open { transform: none; }
+#sheet.open { transform: none; visibility: visible; transition: transform .18s ease-out; }
 @media (min-width: 760px) {
   #sheet { left: auto; right: 12px; bottom: 12px; width: 380px; border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); max-height: 70vh; }
 }
@@ -136,9 +137,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 #logBox {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 25; width: min(420px, 100vw);
   background: var(--paper); border-left: 1px solid var(--line); box-shadow: -2px 0 0 rgba(0,0,0,.08);
-  display: flex; flex-direction: column; transform: translateX(105%); transition: transform .18s ease-out;
+  display: flex; flex-direction: column; transform: translateX(calc(100% + 20px)); visibility: hidden;
+  transition: transform .18s ease-out, visibility 0s linear .18s;
 }
-#logBox.open { transform: none; }
+#logBox.open { transform: none; visibility: visible; transition: transform .18s ease-out; }
 #logBox header { display: flex; align-items: center; padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px; border-bottom: 1px solid var(--line); }
 #logBox header h2 { margin: 0; font-size: 16px; flex: 1; }
 #logList { list-style: none; margin: 0; padding: 6px 0 20px; overflow-y: auto; flex: 1; }
@@ -266,7 +268,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 (function (root) {
 'use strict';
 
-var VERSION = '2026-10-12 r1';
+var VERSION = '2026-10-12 r2';
 var MAP = 10000;          // 地図の一辺(m)
 var CELL = 100;           // 計算用の見えない升目(m)
 var N = MAP / CELL;       // 一辺の升目の数
@@ -1163,7 +1165,9 @@ function layout() {
   $('zoom').style.top = (top + 10) + 'px';
   $('toast').style.top = (top + 10) + 'px';
   var dpr = window.devicePixelRatio || 1;
-  var cw = canvas.clientWidth || window.innerWidth, ch = canvas.clientHeight || (window.innerHeight - top);
+  // canvasは位置だけでは広がらないので、大きさをはっきり決める
+  var cw = window.innerWidth, ch = Math.max(100, window.innerHeight - top);
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
   canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
   S.dpr = dpr; S.cw = cw; S.ch = ch;
   S.dirty = true;
@@ -1709,6 +1713,7 @@ function bind() {
   $('introGo').onclick = function () { $('intro').classList.remove('open'); SE.play('tap'); };
   $('introSeat').onclick = function () { renderSeats(); $('seatDlg').classList.add('open'); };
   window.addEventListener('resize', function () { layout(); });
+  window.addEventListener('orientationchange', function () { setTimeout(layout, 200); });
   document.addEventListener('keydown', function (e) {
     if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
     if (e.key === ' ') { e.preventDefault(); setRunning(!S.running); }
